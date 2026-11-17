@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Toma de pedido POS</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap">
+<style>
+/* Layout: barra de prototipo arriba + lienzo POS 1920×1080 escalado. Colores y formas tomados del Figma "Simphony PDV" (Módulo de caja · Toma de pedido). */
+:root{
+  color-scheme: dark;
+  --page:#141414; --bar:#1b1b1b; --bar-fg:#dcdcdc; --bar-mute:#8a8f94;
+  --bg:#1d1d1d; --status:#000000; --deep:#111111;
+  --slate:#424951; --slate-hi:#4e5660; --slate-off:#282a2c; --slate-dark:#30363c;
+  --sel:#86939f; --sel-fg:#ffffff;
+  --brown:#815a44; --brown-hi:#8d6650; --brown-sub:#6b4732; --brown-sub-hi:#77523c;
+  --green:#006241; --green-hi:#0a7150; --green-deep:#172b24;
+  --red:#8b2919; --red-hi:#9a3524; --err:#c2203a;
+  --paper:#ffffff; --ink:#1b1b1b; --line-sel:#d3d7db;
+  --modal:#f1f0f1; --field:#fff0c7; --focus:#e8bb43; --teal:#07a889; --navy:#1b1b33;
+  --key:#5a5a5a; --key-hi:#666666; --key-fn:#343434;
+  --fg:#ffffff;
+  --c-gaveta:#7d263d; --c-ger:#dc4f30; --c-cambio:#be8e7a; --c-wifi:#94501c; --c-rw:#987207;
+  --cmp:#4c624c; --cmp-hi:#58705a;
+  --r:12px;
+  --f:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+html,body{height:100%}
+body{background:var(--page);color:var(--fg);font-family:var(--f);margin:0;overflow:hidden;display:flex;flex-direction:column}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bar)}
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:0;color:inherit}
+button:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* barra del prototipo */
+.pbar{flex:0 0 auto;display:flex;align-items:center;gap:16px;background:var(--bar);padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid #000;min-height:48px;box-sizing:border-box}
+.pbar .name{font-weight:600;font-size:14px;white-space:nowrap}
+.pbar .name small{display:block;font-weight:400;font-size:11px;color:var(--bar-mute);letter-spacing:.04em;text-transform:uppercase}
+.pbar .hint{flex:1;min-width:0;font-size:13px;color:var(--bar-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pbar .hint b{color:#7fd3b3;font-weight:600}
+.pbtn{background:#2c3035;color:var(--bar-fg);font-size:13px;padding:8px 14px;border-radius:8px;white-space:nowrap}
+.pbtn:hover{background:#383d43}
+.pbtn.on{background:var(--sel);color:var(--sel-fg)}
+@media (max-width:640px){.pbar .hint{display:none}.pbar{justify-content:space-between}}
+
+.wrap{flex:1;position:relative;overflow:hidden;overflow:clip}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;background:var(--bg);overflow:hidden;font-size:20px;user-select:none}
+
+/* drawer de flujos */
+.drawer{position:absolute;top:0;right:0;bottom:0;width:min(380px,100%);background:#181a1c;border-left:1px solid #000;z-index:20;overflow:auto;padding-block:16px;padding-left:20px;padding-right:max(20px,env(safe-area-inset-right,0px));box-sizing:border-box;transform:translateX(100%);visibility:hidden;transition:transform .2s ease,visibility 0s .2s}
+.drawer.open{transform:none;visibility:visible;transition:transform .2s ease}
+.drawer h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--bar-mute);font-weight:600;margin:18px 0 8px}
+.drawer h2:first-child{margin-top:0}
+.flow{display:block;width:100%;text-align:left;background:#24282c;padding:10px 12px;margin-bottom:6px;border-radius:8px;border-left:4px solid transparent;color:var(--bar-fg)}
+.flow:hover{background:#2e3338}
+.flow strong{display:block;font-size:14px;font-weight:600}
+.flow span{display:block;font-size:12px;color:var(--bar-mute);margin-top:2px;line-height:1.35}
+.flow.happy{border-left-color:var(--green)}.flow.alt{border-left-color:var(--sel)}.flow.unhappy{border-left-color:var(--err)}
+
+/* ---- POS ---- */
+.status{position:absolute;left:0;right:0;top:0;height:24px;display:flex;justify-content:space-between;align-items:center;padding:0 12px;font-size:15px;color:#fff;background:linear-gradient(90deg,var(--status) 0 958px,var(--bg) 958px 964px,var(--status) 964px)}
+.t{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.2;border-radius:var(--r);transition:background .08s}
+.b{background:var(--slate)} .b:hover{background:var(--slate-hi)}
+.o{background:var(--brown)} .o:hover{background:var(--brown-hi)}
+.sb{background:var(--brown-sub)} .sb:hover{background:var(--brown-sub-hi)}
+.s,.s:hover{background:var(--sel);color:var(--sel-fg)}
+.tab{background:var(--green)} .tab:hover{background:var(--green-hi)}
+.tab-on,.tab-on:hover{background:transparent;color:#fff}
+.chk{display:inline-block;width:20px;height:20px;margin-right:8px;vertical-align:-3px}
+.g{background:var(--green)} .g:hover{background:var(--green-hi)}
+.r{background:var(--red)} .r:hover{background:var(--red-hi)}
+.ic{width:28px;height:28px}
+
+.ticket{position:absolute;left:0;top:146px;width:388px;height:650px;background:var(--paper);color:var(--ink);overflow:hidden}
+.tscroll{height:100%;overflow-y:auto;scrollbar-width:none}
+.tscroll::-webkit-scrollbar{display:none}
+.ln{display:flex;font-size:17px;padding:2px 12px;line-height:23px;cursor:pointer}
+.ln .q{width:24px;flex:0 0 24px}
+.ln .n{flex:1;min-width:0}
+.ln .p{font-variant-numeric:tabular-nums}
+.ln:first-child{padding-top:9px}
+.it.sel .ln{background:var(--line-sel)}
+.tarrows{position:absolute;left:388px;top:146px;width:44px;height:650px;display:flex;flex-direction:column;justify-content:space-around;align-items:center;background:var(--deep)}
+.tarrows button{background:none;width:44px;height:60px;color:#e6e9e6}
+.tot{position:absolute;left:6px;top:806px;width:420px;font-size:17px;font-variant-numeric:tabular-nums}
+.tot div{display:flex;justify-content:space-between;line-height:26px;gap:6px}
+.tot div:not(.big) span:first-child{flex:1;display:flex;align-items:flex-end;gap:6px}
+.tot div:not(.big) span:first-child::after{content:"";flex:1;border-bottom:1.5px dashed #6f6f6f;margin-bottom:7px}
+.tot .big{justify-content:flex-end;gap:8px;font-size:21px;margin-top:4px}
+
+.stepcol{position:absolute;left:432px;top:24px;width:216px;height:1056px;background:var(--slate)}
+.steps{position:absolute;left:20px;top:80px;width:176px}
+.stp{position:relative;left:0;width:176px;height:120px;margin-bottom:8px;background:var(--bg);font-size:20px}
+.stp:hover{background:#262626}
+.stp.on,.stp.on:hover{background:var(--sel);color:var(--sel-fg)}
+.stepmore{position:absolute;left:20px;width:176px;height:22px;background:none;color:#e0e4e8;display:flex;justify-content:center;align-items:center}
+.perso{position:absolute;left:0;width:216px;top:790px;text-align:center;font-size:20px}
+.toggle{margin:12px auto 0;width:144px;height:56px;border-radius:28px;background:var(--bg);display:flex;justify-content:space-between;align-items:center;padding:0 10px;box-sizing:border-box}
+.toggle span{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff}
+.toggle .x{background:var(--red)} .toggle .v{background:var(--green-deep);color:#2a5a48}
+.toggle.on .x{background:#3a1d18;color:#7a3a2e} .toggle.on .v{background:var(--green);color:#fff}
+
+.cat{top:24px;height:72px;width:150px;font-size:20px;border-radius:0 0 var(--r) var(--r)}
+.dine{border-radius:0 0 var(--r) var(--r)}
+.grid{position:absolute;left:664px;width:1240px;display:grid;grid-template-columns:repeat(4,304px);gap:8px;grid-auto-rows:88px}
+.grid > button{position:static;font-size:20px;padding:0 10px}
+.qtyc{position:absolute;left:664px;top:120px;width:76px;display:grid;grid-auto-rows:66px;gap:0}
+.qtyc .disp{background:var(--field);color:var(--ink);height:62px;display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:6px;border-radius:var(--r)}
+.qtyc button{background:var(--slate);border-bottom:2px solid var(--bg);font-size:20px}
+.qtyc button:first-of-type{border-radius:var(--r) var(--r) 0 0}
+.qtyc button:last-of-type{border-radius:0 0 var(--r) var(--r);border-bottom:0}
+.qtyc button.on{background:var(--sel);color:var(--sel-fg)}
+.question{position:absolute;left:664px;width:1240px;top:128px;text-align:center;font-size:32px}
+
+/* buscar */
+.list-h{position:absolute;left:708px;top:184px;width:620px;height:42px;background:#000;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:20px}
+.skuin{position:absolute;left:708px;top:244px;width:538px;height:72px;background:var(--field);color:var(--ink);font-size:32px;display:flex;align-items:center;padding:0 16px;box-sizing:border-box;border:2px solid var(--focus);border-radius:var(--r)}
+.skuin.err{border-color:var(--err)}
+.skuerr{position:absolute;left:708px;top:322px;width:620px;text-align:right;font-size:16px;color:#ff8f98}
+.skulist{position:absolute;left:708px;width:576px;background:#fff;color:var(--ink);overflow:auto;border-radius:var(--r) 0 0 var(--r)}
+.skulist .row{display:flex;gap:30px;font-size:19px;padding:3px 12px;cursor:pointer}
+.skulist .row.on{background:var(--line-sel)}
+.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.empty b{font-size:20px}.empty span{font-size:15px;color:#555}
+.skuarr{position:absolute;left:1284px;width:44px;background:var(--slate);color:#fff}
+.skuarr.up{border-radius:0 var(--r) 0 0}.skuarr.dn{border-radius:0 0 var(--r) 0}
+.pad{position:absolute;left:1392px;top:184px;display:grid;grid-template-columns:repeat(3,148px);grid-auto-rows:148px;gap:12px}
+.pad button{font-size:30px;font-weight:300;border-radius:var(--r)}
+
+/* pantallas completas */
+.big-title{position:absolute;left:0;right:0;text-align:center;font-weight:400}
+.secth{position:absolute;top:238px;height:40px;background:#000;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:20px}
+.tile{flex-direction:column;gap:28px;font-size:20px}
+.tile svg{width:72px;height:72px}
+
+/* nombre */
+.kb-title{position:absolute;left:280px;top:262px;font-size:32px}
+.kb-in{position:absolute;left:280px;top:320px;width:1360px;height:72px;background:var(--field);color:var(--ink);font-size:30px;display:flex;align-items:center;padding:0 16px;box-sizing:border-box;border-radius:var(--r)}
+.kb-in i{display:inline-block;width:2px;height:34px;background:var(--ink);margin-left:2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.kb{position:absolute;left:280px;top:430px;width:1360px}
+.kr{display:flex;gap:16px;margin-bottom:14px}
+.kr button{height:86px;background:var(--key);font-size:32px;font-weight:300;flex:0 0 94px;border-radius:8px}
+.kr button:hover{background:var(--key-hi)}
+.kr button.fn{background:var(--key-fn);font-size:20px;font-weight:400;display:flex;align-items:flex-end;justify-content:flex-end;padding:0 10px 14px}
+.kr button.fn.l{justify-content:flex-start}
+.kbok{width:142px;height:186px;font-size:26px;border-radius:8px}
+
+/* modales */
+.ov{position:absolute;inset:0;background:rgba(0,0,0,.5);z-index:5}
+.modal{z-index:6;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--modal);color:var(--ink);padding:32px;box-sizing:border-box;text-align:center;border-radius:var(--r)}
+.modal h3{font-weight:400;font-size:28px;margin:6px 0 24px;line-height:1.25}
+.modal .mb{position:static;display:flex;align-items:center;justify-content:center;width:100%;height:84px;font-size:20px;color:#fff;margin-top:20px;border-radius:var(--r)}
+.modal .row2{display:flex;gap:24px}
+.modal .row2 .mb{flex:1}
+.mb.off{background:#c7c4c4;color:#f6f6f6;cursor:default}
+.mb.off.red{background:#d9a49b}
+.mtext{font-size:20px;line-height:1.4;margin:16px 0 0}
+.mtext b{font-weight:600}
+.mtext.err{color:var(--err)}
+.demo{margin-top:18px;padding-top:14px;border-top:1px dashed #c9c6c6;font-size:15px;color:#666;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap}
+.demo button{background:#e2e0e0;color:#333;padding:8px 14px;font-size:15px;border-radius:8px}
+.demo button:hover{background:#d6d3d3}
+.dlist{border:1px solid #c4c2c2;background:#fff;height:334px;overflow:auto;text-align:left;border-radius:var(--r)}
+.dlist .row{display:flex;font-size:20px;padding:12px;cursor:pointer}
+.dlist .row .q{width:30px}.dlist .row .n{flex:1}
+.dlist .row.on{background:var(--line-sel)}
+.reasons{display:flex;gap:12px;height:520px}
+.reasons .ls{flex:1;overflow:auto;text-align:left;scrollbar-width:none}
+.reasons .ls::-webkit-scrollbar{display:none}
+.rsn{display:flex;align-items:center;gap:20px;width:100%;height:64px;background:#fff;color:var(--ink);font-size:19px;padding:0 20px;margin-bottom:12px;border:3px solid transparent;text-align:left;box-sizing:border-box;border-radius:var(--r)}
+.rsn.on{border-color:var(--green)}
+.rsn .rd{width:22px;height:22px;border-radius:50%;border:2px solid #555;flex:0 0 22px;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+.rsn.on .rd{border-color:var(--green)}
+.rsn.on .rd::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--green)}
+.rbar{width:56px;background:#dedcdc;display:flex;flex-direction:column;justify-content:space-between;border-radius:var(--r);overflow:hidden}
+.rbar button{height:56px;background:var(--slate);color:#fff}
+.close{position:absolute;right:20px;top:20px;width:44px;height:44px;background:none;color:var(--ink)}
+.pin{height:72px;background:var(--field);border:2px solid var(--focus);font-size:28px;display:flex;align-items:center;padding:0 16px;letter-spacing:4px;border-radius:var(--r)}
+.pin.err{border-color:var(--err)}
+.pinerr{color:var(--err);font-size:16px;text-align:left;margin-top:8px;min-height:20px}
+.mpad{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:80px;gap:10px;margin-top:12px}
+.mpad button{background:var(--slate);color:#fff;font-size:24px;font-weight:300;border-radius:var(--r)}
+.mpad .r{background:var(--red)} .mpad .g{background:var(--green)}
+.fp{width:150px;height:150px;margin:8px auto 0;display:block;background:none}
+.toast{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);background:#000;color:#fff;font-size:22px;padding:18px 30px;z-index:9;box-shadow:0 8px 30px rgba(0,0,0,.4);white-space:nowrap;border-radius:var(--r)}
+.badge{display:inline-block;font-size:13px;background:var(--green);color:#fff;padding:2px 8px;margin-left:8px;vertical-align:3px;border-radius:6px}
+
+/* checkout */
+.cmp{background:var(--cmp)} .cmp:hover{background:var(--cmp-hi)}
+.amtbox{position:absolute;left:0;top:24px;width:424px;height:72px;background:var(--field);color:var(--ink);font-size:32px;display:flex;align-items:center;padding:0 16px;box-sizing:border-box;border-radius:0 0 var(--r) var(--r);font-variant-numeric:tabular-nums}
+.ticket.tall,.tarrows.tall{height:714px}
+.tot.tall{top:868px}
+.tfoot{border-top:1.5px dashed #b9b9b9;margin:10px 12px 0;padding-top:6px}
+.tfoot .ln{padding:2px 0}
+.tfoot .ln:first-child{padding-top:2px}
+.hdr{position:absolute;left:480px;width:1392px;height:42px;background:#000;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:20px}
+.mt{font-size:22px}
+.field{height:72px;background:var(--field);border:2px solid var(--focus);font-size:30px;display:flex;align-items:center;padding:0 16px;border-radius:var(--r);color:var(--ink);font-variant-numeric:tabular-nums;box-sizing:border-box;text-align:left}
+.field .ph{color:#9a9178;font-size:20px}
+.inrow{display:flex;gap:12px}.inrow .field{flex:1;min-width:0}
+.trash{width:72px;height:72px;flex:0 0 72px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:#fff}
+.trash.off{background:#d9a49b;cursor:default}
+.bills{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.bill{height:112px;border-radius:var(--r);color:#fff;font-size:46px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;font-variant-numeric:tabular-nums}
+.bill span{font-size:20px;font-weight:500}
+.bill::after{content:"";position:absolute;inset:8px;border:2px solid rgba(255,255,255,.35);border-radius:8px;pointer-events:none}
+.bill::before{content:"";position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.14)}
+.bill10{background:linear-gradient(135deg,#2c7d4e,#56b073)}
+.bill20{background:linear-gradient(135deg,#9a5a27,#cf8b4f)}
+.bill50{background:linear-gradient(135deg,#a33b56,#d6768d)}
+.bill100{background:linear-gradient(135deg,#385d9c,#7393cb)}
+.bill200{background:linear-gradient(135deg,#664797,#9b7cc9)}
+.bill.other{background:var(--slate);font-size:20px;font-weight:400}
+.bill.other::after,.bill.other::before{display:none}
+.bill:active{filter:brightness(1.12)}
+.due{font-size:16px;color:#555;margin:-14px 0 16px}
+.info{background:#fff;border-radius:var(--r);padding:10px 16px;text-align:left;font-size:17px;margin-bottom:14px;font-variant-numeric:tabular-nums}
+.info div{display:flex;justify-content:space-between;line-height:30px}
+.mpad .wide{grid-column:1/-1}
+.card-ic{width:120px;height:96px;margin:4px auto 0;display:block}
+.dopts button{display:flex;width:100%;height:76px;margin-bottom:10px;border-radius:var(--r);background:var(--slate);color:#fff;align-items:center;justify-content:center;font-size:19px}
+.dopts button:hover{background:var(--slate-hi)}
+.chg{font-size:20px;margin:0 0 4px}
+
+/* rewards */
+.ov.clear{background:transparent}
+.pmenu{position:absolute;left:8px;top:696px;width:336px;background:var(--slate-dark);border-radius:var(--r);padding:10px;box-sizing:border-box;z-index:6;display:grid;gap:8px;box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.pmenu button{height:84px;border-radius:10px;background:var(--slate);color:#fff;font-size:21px}
+.pmenu button:hover{background:var(--green)}
+.cust{text-align:center;font-size:17px;line-height:24px;padding:8px 0 6px;border-bottom:1.5px dashed #b9b9b9;margin:0 12px 4px}
+.ln.rwl .n,.ln.rwl .p{color:#1d5c46}
+.dlg{z-index:6;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;color:var(--ink);border-radius:16px;padding:34px 36px 30px;box-sizing:border-box;text-align:left;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.dlg h3{font-size:30px;font-weight:600;margin:0 0 6px}
+.dlg .sub{font-size:18px;color:#6b6b6b;margin:0 0 26px;line-height:1.4}
+.dlg .x{position:absolute;right:26px;top:26px;width:48px;height:48px;background:none;color:var(--ink)}
+.dlg .rows{display:grid;gap:12px;max-height:470px;overflow:auto}
+.rrow{display:flex;align-items:center;gap:18px;border:1.5px solid #e1e1e1;border-radius:12px;padding:14px 18px;font-size:20px;font-weight:600;background:#fff;width:100%;text-align:left;box-sizing:border-box}
+.rrow .ico{width:48px;height:48px;border-radius:10px;background:#f1f1f1;display:flex;align-items:center;justify-content:center;flex:0 0 48px}
+.rrow .ico svg{width:26px;height:26px}
+.rrow .nm{flex:1;min-width:0}
+.rrow .pts{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-weight:500;font-size:20px;white-space:nowrap}
+.rrow.na{opacity:.5}.rrow.na .pts{font-family:inherit;font-size:16px}
+.rrow.pick{cursor:pointer}.rrow.pick.on{border-color:var(--green);box-shadow:0 0 0 1.5px var(--green) inset}
+.dlg .acts{display:flex;justify-content:flex-end;gap:12px;margin-top:26px}
+.dlg .acts button{height:64px;min-width:170px;padding:0 24px;border-radius:10px;font-size:21px;font-weight:600}
+.btn-out{background:#fff;border:1.5px solid #dcdcdc!important;color:var(--ink)}
+.btn-g{background:var(--green);color:#fff}.btn-g.off{background:#a9c3b8;cursor:default}
+.warn{color:var(--err);font-size:16px;margin:12px 0 0}
+.scanbox{display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0 4px}
+.scanbox .circ{width:96px;height:96px;border-radius:50%;background:#e9f3ef;display:flex;align-items:center;justify-content:center;color:var(--green)}
+.scanbox .circ svg{width:44px;height:44px}
+.spin{display:flex;align-items:center;gap:10px;font-size:19px;color:#444}
+.spin i{width:18px;height:18px;border:2.5px solid #bbb;border-top-color:#444;border-radius:50%;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.prof div{display:flex;gap:6px;font-size:19px;padding:13px 0;border-bottom:1px solid #e6e6e6}
+.prof div:last-child{border-bottom:0}
+.prof b{font-weight:500}
+</style>
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font-size:14px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="pbar">
+  <div class="name">Toma de pedido<small>Prototipo · POS Simphony</small></div>
+  <div class="hint" id="hint"></div>
+  <button class="pbtn" id="btnFlows" aria-expanded="false">Flujos</button>
+  <button class="pbtn" id="btnReset">Reiniciar</button>
+</div>
+<div class="wrap" id="wrap">
+  <div id="stage"></div>
+  <nav class="drawer" id="drawer" aria-label="Flujos"></nav>
+</div>
+
+<script>
+/* ---------- iconos ---------- */
+const I=(p,w=2)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" class="ic">${p}</svg>`;
+const IC={
+ check:I('<path d="M4 12.5l5 5L20 6.5"/>',3),
+ x:I('<path d="M6 6l12 12M18 6L6 18"/>'),
+ out:I('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'),
+ back:I('<path d="M19 12H5M12 19l-7-7 7-7"/>'),
+ up:I('<path d="M12 19V5M5 12l7-7 7 7"/>'),
+ down:I('<path d="M12 5v14M19 12l-7 7-7-7"/>'),
+ uu:I('<path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>'),
+ dd:I('<path d="M7 13l5 5 5-5M7 6l5 5 5-5"/>'),
+ more:I('<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',2.5),
+ copy:I('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>'),
+ trash:I('<path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/>'),
+ cash:I('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>'),
+ print:I('<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'),
+ bag:I('<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/>'),
+ lock:I('<rect x="4" y="11" width="16" height="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+ swap:I('<path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>'),
+ gift:I('<path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>'),
+ search:I('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',3),
+ scan:I('<path d="M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4M7 8v8M11 8v8M15 8v8M18 8v8"/>'),
+ undo:I('<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>'),
+};
+const FP=(c,ring)=>`<svg viewBox="0 0 100 100" fill="none" stroke-linecap="round"><circle cx="50" cy="50" r="46" stroke="${ring}" stroke-width="3.5"/><g stroke="${c}" stroke-width="4.2"><path d="M33 40c3-10 9-15 17-15s14 5 17 15"/><path d="M38 70V48c0-7 5-12 12-12s12 5 12 12v22"/><path d="M44 74V49c0-3 3-6 6-6s6 3 6 6v25"/><path d="M50 52v24"/><path d="M32 48v18"/><path d="M68 48v18"/></g></svg>`;
+const QR=`<svg viewBox="0 0 100 100" width="96" height="96"><g fill="#07a889"><rect x="6" y="6" width="38" height="38" rx="5"/><rect x="56" y="6" width="38" height="38" rx="5"/><rect x="6" y="56" width="38" height="38" rx="5"/><path d="M56 56h38v38h-12V68h-7v26H63V68h-7z"/></g><g fill="#fbfcf5"><rect x="14" y="14" width="22" height="22" rx="3"/><rect x="64" y="14" width="22" height="22" rx="3"/><rect x="14" y="64" width="22" height="22" rx="3"/></g><g fill="#07a889"><rect x="19" y="19" width="12" height="12"/><rect x="69" y="19" width="12" height="12"/><rect x="19" y="69" width="12" height="12"/></g></svg>`;
+
+/* ---------- catálogo ---------- */
+const SIZES=[['Corto',-1.5],['Alto',0],['Grande',1.5],['Venti',3]];
+const CATS=[
+ {id:'drip',label:'Drip',kind:'drink'},
+ {id:'espresso',label:'Espresso',kind:'drink'},
+ {id:'frappuccino',label:'Frappuccino',kind:'frapp'},
+ {id:'otras',label:'Otras<br>bebidas',kind:'drink'},
+ {id:'alimentos',label:'Alimentos',kind:'food'},
+ {id:'merch',label:'Merch',kind:'merch'},
+ {id:'promos',label:'Promos',kind:'simple'},
+ {id:'corporativo',label:'Corporativo',kind:'simple'}];
+const P=(names,price)=>names.map(n=>Array.isArray(n)?{n:n[0],p:n[1]}:{n,p:price});
+const SUBS={
+ drip:{'Core':P(['Café del día','Café filtrado','Pour over','Café con leche','Misto'],8.5),'Core ice':P(['Iced coffee','Iced misto'],9.5),'Cold Foam':P(['Cold Brew Cold Foam','Vainilla Cold Foam'],13),'Espresso':P(['Americano filtrado'],9),'Especial':P(['Café de origen','Reserva Perú'],12),'Especial ice':P(['Cold brew Perú'],12.5)},
+ espresso:{'Core':P(['Alg Latte','Black & White','Black Cold B','Cappuccino','Caramel Macchiato','Choco Mocha','Cinnamon Dolce Latte','Caramel Latte','Especial Mocha CB','Espresso Americano','Latte','Latte Macchiato','Lemon Cold B','Manjar Blnco','Flat White','Vainilla Latte','Mocha Blanco','Cortado'],14),'Core ice':P(['Iced Latte','Iced Americano','Iced Mocha','Iced Caramel Macchiato'],15),'Cold Foam':P(['Cold Foam Latte','Cold Foam Mocha'],15.5),'Espresso':P(['Espresso','Espresso doble','Macchiato'],8),'Especial':P(['Latte de temporada','Lúcuma Latte'],16),'Especial ice':P(['Iced Lúcuma Latte'],16.5)},
+ frappuccino:{'Café':P(['Mocha Frappuccino','Caramel Frappuccino','Java Chip Frappuccino','Coffee Frappuccino','Mocha Blanco','Espresso Frappuccino','Vainilla Crema','Fresa Crema','Chai Crema','Matcha Crema','Cookies & Cream','Lúcuma Frappuccino','Dulce de Leche','Caramelo Salado','Avellana Frappuccino','Cheesecake Fresa'],16),'Crema':P(['Vainilla Crema','Fresa Crema','Chai Crema','Matcha Crema'],15.5),'Light':P(['Mocha Light','Caramel Light'],15),'Especial':P(['Frappuccino de temporada'],17.5),'Café ice':P(['Mocha ice','Caramel ice'],16.5),'Crema ice':P(['Vainilla ice','Fresa ice'],16)},
+ otras:{'Té':P(['Chai Tea Latte','Matcha Latte','Té verde','Té negro','Infusión manzanilla'],11),'Chocolate':P(['Chocolate caliente','Chocolate blanco'],12),'Refrescos':P(['Limonada','Refresher fresa','Refresher mango'],10.5)},
+ alimentos:{'Sandwiches':P([['Croissant jamón y queso',12.5],['Chicken Ciabatta',15.5],['Sándwich de pollo',14],['Panini caprese',15],['Wrap de pavo',14.5],['Bagel de salmón',17],['Triple clásico',11]]),'Postres':P([['Cheesecake',13],['Brownie',8.5],['Torta de chocolate',12],['Pie de limón',11]]),'Pastries':P([['Croissant',6.5],['Pan queso',3.5],['Muffin de arándanos',8],['Rol de canela',9]])},
+ merch:{'Destacados':P(['Tri Plastic Reus','Love Plastic Reus','Vaso Blanco Reus','Vaso Verde Reus','Vaso Negro Reus'],14),'Caja té':P([['Caja té verde',38],['Caja té chai',38]]),'Whole bean':P([['Perú 250 g',42],['Pike Place 250 g',45],['Espresso Roast 250 g',45]]),'Mug':P([['Mug Lima 12 oz',49],['Mug Andes 16 oz',55]]),'Tumbler':P([['Tumbler Siren',59],['Tumbler Metal',89]]),'Prensas':P([['Prensa francesa 8 tazas',129]]),'Otros':P([['Tarjeta de regalo',50]])},
+ promos:{'Promos':P([['Combo desayuno',18],['Dúo café + postre',20],['2x1 Frappuccino',16]])},
+ corporativo:{'Corporativo':P([['Caja de café 10 personas',95],['Caja de té 10 personas',80]])},
+};
+const SKU=[];{let i=0;const base=[11123000,11123001,11123002,11123034,11123056,11123067,11123088,11123134,11123567,11123678,11123999,22140010,22140011,30115020];Object.values(SUBS.merch).flat().forEach(p=>{if(i<base.length)SKU.push({sku:String(base[i++]),n:p.n,p:p.p})});}
+const STEPS={drink:['tipo','envase','leche','cafe','adicionales'],frapp:['tipo','envase','leche','cafe','crema','adicionales'],food:['tipo','envase','temperatura'],merch:['tipo','buscar','escanear'],simple:['tipo']};
+const SL={tipo:'Tipo',envase:'Envase',leche:'Leche',cafe:'Café',crema:'Crema batida',adicionales:'Adicionales',temperatura:'Temperatura',buscar:'Buscar',escanear:'Escanear'};
+const OPTS={
+ envase:[['Descartable',0],['Reusable<br>- 15% dscto.','R'],['Loza',0]],
+ envaseFood:[['Loza',0],['Descartable',0]],
+ leche:[['Entera',0],['Sin Lactosa',0],['Descremada',0],['Soya',0],['Almendra',0],['Coco',0]],
+ cafe:[['Perú',1],['Aniversary',0],['Espresso',0],['Decaf',0]],
+ crema:[['Con crema batida',0],['Sin crema batida',0],['Extra crema batida',1]],
+ temperatura:[['Caliente',0],['Sin calentar',0]],
+ adicionales:[['Chispas choco',1],['RWS Leche Almond',1],['RWS Leche Coco',1],['RWS Leche Soya',1],['Shot de café',1]],
+};
+const PERSO={
+ Bebidas:{'Aditivos':['Edulcorante','Stevia','1/4 Edulcorante','1/4 Stevia','Azúcar blanca','Azúcar rubia','Canela en polvo','Chispas encima','Chocolate en polvo','Extra Uni Chips'],'Hielo':['Sin hielo','Poco hielo','Extra hielo'],'Crema batida':['Con crema','Sin crema','Poca crema'],'Agua':['Sin agua','Poca agua','Extra agua'],'Temperatura':['Extra caliente','Tibio','Para niños'],'Shots':['1 shot','2 shots','Ristretto','Long shot'],'Espuma':['Sin espuma','Extra espuma','Seco','Húmedo'],'Syrups':['Vainilla','Caramelo','Avellana','Moka','Mocha blanco','Vainilla sin azúcar'],'Toppings':['Caramelo drizzle','Mocha drizzle','Canela'],'Leche':['Extra leche','Leche aparte'],'Mensaje especial':['Feliz cumpleaños','Con cariño','Gracias']},
+ Alimentos:{'Preparación':['Bien caliente','Cortado en 2','Sin salsa'],'Para llevar':['En bolsa','Con cubiertos']},
+ 'Café en grano':{'Molienda':['Grano entero','Molido prensa','Molido filtro','Molido espresso']},
+};
+const REASONS=['Producto/ítem no disponible','Pedido incorrecto','No se pudo dar vuelto (Falta de sencillo)','Problemas técnicos (POS u otro)','Temor por tiempo de demora en la entrega','Falta de información sobre producto','Cliente ya no desea pedir/continuar','Otro motivo'];
+const PIN='1234';
+
+/* ---------- estado ---------- */
+let uid=1;
+const fresh=()=>({screen:'caja',modal:null,order:{items:[],name:'',dine:'tienda',chk:1042,second:false,rewards:false,pays:[],disc:null,comp:null},ck:{panel:'methods',method:null},sel:[],bpick:0,amt:'',ref:'',usd:'',lastAmt:null,change:0,
+ cat:'drip',step:'tipo',sub:'Core',size:'Alto',cur:null,page:0,perso:false,pCat:'Bebidas',pSub:'Aditivos',qty:'',
+ sku:'',skuSel:null,skuErr:false,del:[],reason:null,auth:'huella',pin:'',pinErr:false,fpErr:false,kb:'',shift:true,num:false,cross:false,hint:''});
+let S=fresh();
+
+const cat=id=>CATS.find(c=>c.id===id);
+const kindOf=id=>cat(id).kind;
+const firstSub=id=>Object.keys(SUBS[id])[0];
+const cur=()=>S.order.items.find(i=>i.id===S.cur);
+const isDrink=it=>it.kind==='drink'||it.kind==='frapp';
+const sizeDelta=s=>(SIZES.find(x=>x[0]===s)||[0,0])[1];
+const r2=n=>Math.round(n*100)/100;
+const f2=n=>n.toFixed(2);
+
+function mkItem(catId,name,price,o={}){
+  const it={id:uid++,cat:catId,kind:kindOf(catId),name,base:price,size:o.size||'Alto',mods:o.mods||{},extras:o.extras||[],perso:o.perso||[],done:!!o.done};
+  return it;
+}
+function headPrice(it){return isDrink(it)?r2(it.base+sizeDelta(it.size)):it.base}
+function lines(it){
+  const L=[{q:'1',n:isDrink(it)?`[${it.size.toUpperCase()}] ${it.name}`:it.name,p:headPrice(it),head:true}];
+  const order=['envase','leche','cafe','crema','temperatura'];
+  order.forEach(k=>{const m=it.mods[k];if(!m)return;let p=m.p||0;if(m.p==='R')p=-r2(headPrice(it)*.15);L.push({n:m.l,p})});
+  it.extras.forEach(e=>L.push({n:(e.q>1?e.q+' ':'')+e.l,p:e.p*e.q}));
+  it.perso.forEach(e=>L.push({n:(e.q&&e.q!=='1'?e.q+' ':'')+e.l,p:0}));
+  if(it.canje){L.push({q1:'1',n:'Canje estrellas',p:-it.canje.disc,rw:true});L.push({n:`${it.canje.stars} estrellas${it.canje.copay?' + S/ '+f2(it.canje.copay):''}`,p:0,rw:true})}
+  if(it.benef){L.push({q1:'1',n:'Beneficio',p:-it.benef.disc,rw:true});L.push({n:it.benef.label,p:0,rw:true})}
+  return L;
+}
+function totals(){let sub=0,ds=0;S.order.items.forEach(it=>lines(it).forEach(l=>{if(l.p>0)sub+=l.p;else ds+=l.p}));const d=S.order.disc;const dd=d?-r2((sub+ds)*d.pct):0;return{sub:r2(sub),ds:r2(ds+dd),tot:r2(sub+ds+dd),dd}}
+function paid(){return r2((S.order.pays||[]).reduce((a,p)=>a+p.soles,0))}
+function remaining(){return Math.max(0,r2(totals().tot-paid()))}
+const FX=3.46;
+const COMPS=['Boleta simple','Boleta con DNI / Ruc extranjero','Factura'];
+const DISCS=[['Dscto. Bombero - 20%',.2],['Dscto. Rewards - 30%',.3],['Dscto. Gerencial - 50%',.5,true],['Giveaway',1]];
+function itemTotal(it){return r2(lines(it).reduce((a,l)=>a+l.p,0))}
+
+/* ---------- render ---------- */
+const $st=document.getElementById('stage');
+function clock(){const d=new Date();const days=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],m=['ene.','feb.','mar.','abr.','may.','jun.','jul.','ago.','set.','oct.','nov.','dic.'];let h=d.getHours(),ap=h>=12?'P.M':'A.M';h=h%12||12;return `${days[d.getDay()]} ${d.getDate()} ${m[d.getMonth()]} &nbsp; ${String(h).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} ${ap}`}
+const status=()=>`<div class="status"><span>SB | Counter Mariana Añanca</span><span>${clock()}</span></div>`;
+const T=(x,y,w,h,cls,inner,act,extra='')=>`<button class="t ${cls}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" data-a="${act}" ${extra}>${inner}</button>`;
+const ck=on=>on?`<svg class="chk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`:'';
+
+function render(){
+  let h=status();
+  if(S.screen==='caja') h+=caja();
+  else if(S.screen==='inicio') h+=inicio();
+  else if(S.screen==='nombre') h+=nombre();
+  else if(S.screen==='checkout') h+=checkout();
+  else h+=pos();
+  if(S.modal) h+=(S.modal==='menu'?`<div class="ov clear" data-a="close"></div>`:`<div class="ov"></div>`)+modal();
+  if(S.toast) h+=`<div class="toast" role="status">${S.toast}</div>`;
+  $st.innerHTML=h;
+  
+  const ts=$st.querySelector('.tscroll');if(ts&&S._scrollEnd){ts.scrollTop=ts.scrollHeight;S._scrollEnd=false}
+  document.getElementById('hint').innerHTML=S.hint?`<b>Prueba:</b> ${S.hint}`:'Toca la pantalla como en el POS. Usa <b>Flujos</b> para saltar a cualquier escenario del Figma.';
+}
+
+function caja(){
+  return `${T(6,32,188,72,'g',`${IC.out}<span style="margin-left:10px">Salir</span>`,'toast:Cerrar sesión no forma parte de estos flujos')}
+  <div class="big-title" style="top:160px;font-size:34px">Módulo de Caja</div>
+  <div class="secth" style="left:162px;width:586px">Accesos</div>
+  <div class="secth" style="left:768px;width:990px">Atención al cliente</div>
+  ${tile(162,298,586,240,'--c-gaveta',IC.cash,'Abrir gaveta')}
+  ${tile(162,558,283,240,'--c-ger',IC.lock,'Acceso gerencial')}
+  ${tile(465,558,283,240,'--c-cambio',IC.swap,'Tipo de cambio')}
+  ${tile(768,298,586,240,'--c-wifi',IC.print,'Impresión wifi')}
+  ${tile(768,558,586,240,'--c-rw',IC.gift,'Rewards')}
+  ${T(1374,298,384,500,'tile g',IC.bag+'<span>Iniciar pedido</span>','go:inicio')}
+  <button class="t" style="left:162px;top:820px;width:788px;height:88px;background:var(--slate-off);color:#666" data-a="noop" aria-label="Página anterior">${IC.up}</button>
+  ${T(970,820,788,88,'b',IC.down,'toast:Página 2 fuera del alcance de estos flujos')}
+  <div class="big-title" style="top:946px;font-size:20px">1 / 2</div>`;
+}
+function tile(x,y,w,h,v,icon,label,fg='#fff'){return `<button class="t tile" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:var(${v});color:${fg}" data-a="toast:${label} no forma parte de estos flujos">${icon}<span>${label}</span></button>`}
+
+function inicio(){
+  return `${T(6,32,188,72,'g',`${IC.back}<span style="margin-left:10px">Volver</span>`,'go:caja')}
+  <div class="big-title" style="top:280px;font-size:40px;font-weight:300">¡Listo para pedir! Elige una opción</div>
+  ${T(524,368,400,432,'b','2da venta','start:2')}
+  ${T(996,368,400,432,'b','Nuevo pedido','start:1')}`;
+}
+
+function nombre(){
+  const L=S.num?['1234567890','@#$%&-+()/','*"\':;!?']:['qwertyuiop','asdfghjkl','zxcvbnm,.'];
+  const k=c=>`<button data-a="key:${encodeURIComponent(c)}">${S.shift&&!S.num?c.toUpperCase():c}</button>`;
+  return `${T(6,32,188,72,'g','Volver','go:pos')}
+  <div class="kb-title">Nombre del cliente</div>
+  <div class="kb-in">${esc(S.kb)}<i></i></div>
+  <div class="kb">
+   <div class="kr"><button class="fn l" style="flex:0 0 122px" data-a="kbclear" aria-label="Limpiar">${IC.undo}</button>${[...L[0]].map(k).join('')}<button class="fn" style="flex:1" data-a="kbdel">Borrar</button></div>
+   <div class="kr"><button class="fn l" style="flex:0 0 178px;${S.shift?'background:var(--sel)':''}" data-a="shift">Mayúscula</button>${[...L[1]].map(k).join('')}<button class="fn" style="flex:1" data-a="kbok">Siguiente</button></div>
+   <div style="display:flex;gap:12px">
+    <div style="flex:1">
+     <div class="kr"><button class="fn l" style="flex:0 0 214px" data-a="num">${S.num?'abc':'.?123'}</button>${[...L[2]].map(k).join('')}</div>
+     <div class="kr"><button style="flex:1" data-a="key:%20" aria-label="Espacio"></button></div>
+    </div>
+    <button class="g kbok" data-a="kbok">OK</button>
+   </div>
+  </div>`;
+}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+
+
+const CUST={card:'7777 3716 5611 4487',name:'José Chuman',cur:'PEN',saldo:725.91,stars:4279,bday:'01/01',bdayTxt:'1 de Enero',grano:true};
+const RI={cup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/></svg>',
+ cake:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16M5 21v-7h14v7M5 17c2 1.5 4 1.5 7 0s5-1.5 7 0M8 14v-3M12 14v-3M16 14v-3M8 8v.01M12 8v.01M16 8v.01"/></svg>',
+ gift:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13M12 8c-1-3-5-4-5-1.5S10 8 12 8zM12 8c1-3 5-4 5-1.5S14 8 12 8z"/></svg>',
+ card:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 10h18"/></svg>'};
+const PLASTIC=['Tumbler Siren'],METAL=['Tumbler Metal'];
+const val=it=>r2(lines(it).filter(l=>!l.rw).reduce((a,l)=>a+l.p,0));
+function selIds(){const s=(S.sel||[]).slice();if(!s.length&&S.cur)s.push(S.cur);return s}
+function rwGroups(ids){
+  const all=S.order.items,ix=it=>all.indexOf(it);
+  const picked=all.filter(i=>ids.includes(i.id));
+  const X=picked.filter(i=>i.canje||i.canjeBy).map(i=>({it:i,why:'Ya canjeado'}));
+  const items=picked.filter(i=>!i.canje&&!i.canjeBy);
+  const drinks=items.filter(isDrink),used=new Set(),G=[];
+  items.filter(i=>i.kind==='food').forEach(f=>{
+    let best=null;drinks.forEach(d=>{if(used.has(d.id)||ix(d)>ix(f))return;if(!best||ix(d)>ix(best))best=d});
+    if(!best)best=drinks.find(d=>!used.has(d.id));
+    if(best){used.add(best.id);used.add(f.id);G.push({ids:[best.id,f.id],at:Math.min(ix(best),ix(f)),label:`${best.name} + ${f.name}`,icon:'cake',stars:200,copay:0,disc:r2(val(best)+val(f))})}
+    else X.push({it:f,why:'Solo con una bebida'});
+  });
+  items.forEach(i=>{if(used.has(i.id))return;
+    if(isDrink(i)){const st=i.cat==='drip'?50:100;G.push({ids:[i.id],at:ix(i),label:i.name,icon:'cup',stars:st,copay:0,disc:val(i)})}
+    else if(i.kind==='merch'&&PLASTIC.includes(i.name))G.push({ids:[i.id],at:ix(i),label:i.name,icon:'gift',stars:300,copay:15,disc:r2(Math.max(0,val(i)-15))});
+    else if(i.kind==='merch'&&METAL.includes(i.name))G.push({ids:[i.id],at:ix(i),label:i.name,icon:'gift',stars:400,copay:45,disc:r2(Math.max(0,val(i)-45))});
+    else if(i.kind!=='food')X.push({it:i,why:'No aplica'});
+  });
+  G.sort((a,b)=>a.at-b.at);return {G,X};
+}
+function benefitsFor(it){
+  const c=S.order.cust||{},B=[];if(!it||!isDrink(it))return B;
+  const sh=it.extras.find(e=>e.l==='Shot de café');
+  if(sh)B.push({k:'shot',label:'Shot de café gratis',icon:'cup',disc:r2(sh.p)});
+  B.push({k:'cumple',label:'Bebida gratis por cumpleaños',icon:'cake',disc:headPrice(it)});
+  if(it.size==='Alto'&&c.grano)B.push({k:'grano',label:'Bebida alta por café en grano',icon:'cup',disc:headPrice(it)});
+  if(it.name==='Café del día'||/^(Té|Chai)/.test(it.name))B.push({k:'refill',label:'Refill',icon:'cup',disc:val(it)});
+  return B;
+}
+const pts=g=>`${g.stars} ★${g.copay?` + S/ ${g.copay}`:''}`;
+function rwModal(m){
+  const o=S.order;
+  if(m==='menu') return `<div class="pmenu"><button data-a="rwmenu:canje">Recompensas</button><button data-a="rwmenu:benef">Beneficios</button><button data-a="toast:Recargas no forma parte de estos flujos">Recargas</button></div>`;
+  if(m==='rwid') return `<div class="dlg" style="width:560px"><button class="x" data-a="close" aria-label="Cerrar">${IC.x}</button><h3>Tarjeta Rewards</h3><p class="sub">Escanea o desliza la tarjeta por el lector para continuar.</p><div class="scanbox"><span class="circ">${RI.card}</span><span class="spin"><i></i>Esperando lectura…</span></div><div class="demo">Demo: <button data-a="rwread">Simular lectura de tarjeta</button></div></div>`;
+  if(m==='profile'){const c=CUST,d=new Date(),p=n=>String(n).padStart(2,'0');return `<div class="dlg" style="width:720px"><button class="x" data-a="close" aria-label="Cerrar">${IC.x}</button><h3>Perfil del cliente</h3><div class="prof" style="margin-top:22px">${[['Tarjeta',c.card],['Nombre',c.name],['Moneda',c.cur],['Saldo','S/ '+f2(c.saldo)],['Estrellas',c.stars.toLocaleString('en-US')],['Fecha cumpleaños',c.bday],['Fecha',`${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`]].map(([k,v])=>`<div><span>${k}:</span><b>${esc(v)}</b></div>`).join('')}</div><div class="acts"><button class="btn-out" data-a="close">Cancelar</button><button class="btn-g" data-a="profok">Confirmar</button></div></div>`}
+  if(m==='redeem'){const {G,X}=rwGroups(selIds());const tot=G.reduce((a,g)=>a+g.stars,0);const n=G.reduce((a,g)=>a+g.ids.length,0);const ok=G.length&&tot<=o.cust.stars;
+    return `<div class="dlg" style="width:720px"><h3>Canje de ${tot} estrellas</h3><p class="sub">${n} producto${n===1?'':'s'} seleccionado${n===1?'':'s'}. Disponibles: ${o.cust.stars} ★</p><div class="rows">${G.map(g=>`<div class="rrow"><span class="ico">${RI[g.icon]}</span><span class="nm">${esc(g.label)}</span><span class="pts">${pts(g)}</span></div>`).join('')}${X.map(x=>`<div class="rrow na"><span class="ico">${RI.cup}</span><span class="nm">${esc(x.it.name)}</span><span class="pts">${x.why}</span></div>`).join('')}</div>${G.length&&tot>o.cust.stars?`<p class="warn">El cliente no tiene estrellas suficientes para este canje.</p>`:''}<div class="acts"><button class="btn-out" data-a="close">Cancelar</button><button class="btn-g ${ok?'':'off'}" data-a="${ok?'doCanje':'noop'}">Canjear</button></div></div>`}
+  if(m==='benef'){const it=o.items.find(i=>i.id===selIds()[0]);const B=benefitsFor(it);const pick=Math.min(S.bpick||0,B.length-1);
+    return `<div class="dlg" style="width:720px"><h3>Canje de 1 beneficio</h3><p class="sub">1 beneficio seleccionado${B.length>1?' · Toca otro para cambiarlo':''}.</p><div class="rows">${B.map((b,i)=>`<button class="rrow pick ${i===pick?'on':''}" data-a="bpick:${i}"><span class="ico">${RI[b.icon]}</span><span class="nm">${b.label}</span><span class="pts">Gratis</span></button>`).join('')}</div><div class="acts"><button class="btn-out" data-a="close">Cancelar</button><button class="btn-g" data-a="doBenef">Canjear</button></div></div>`}
+  return '';
+}
+function setCust(){S.order.rewards=true;S.order.cust={...CUST};if(!S.order.name)S.order.name=CUST.name}
+
+const nameBar=o=>`<button class="t" style="left:0;top:100px;width:432px;height:46px;justify-content:space-between;padding:0 8px;background:none;font-size:20px;border-radius:0" data-a="go:nombre"><span>${o.name?esc(o.name):'[Nombre del cliente]'}${o.rewards?'<span class="badge">Rewards</span>':''}${o.second?'<span class="badge" style="background:var(--slate)">2da venta</span>':''}</span><span style="font-size:14px">chk #${o.chk}</span></button>`;
+function ticketHTML(o,cls){
+  const items=(o.cust?`<div class="cust">Estrellas: ${o.cust.stars}<br>Saldo: S/${f2(o.cust.saldo)}<br>Cumpleaños: ${o.cust.bdayTxt}</div>`:'')+o.items.map(it=>`<div class="it ${(S.sel||[]).includes(it.id)||(S.cur===it.id&&(it.done||S.perso))||(S.cur===it.id&&S.edit)?'sel':''}">${lines(it).map(l=>`<div class="ln${l.rw?' rwl':''}" data-a="sel:${it.id}"><span class="q">${l.head?l.q:(l.q1||'')}</span><span class="n">${esc(l.n)}</span><span class="p">${l.head?f2(l.p):l.p>0?'+'+f2(l.p):l.p<0?f2(l.p):''}</span></div>`).join('')}</div>`).join('');
+  const t=totals();let foot='';
+  if(o.disc)foot+=`<div class="ln"><span class="n">${esc(o.disc.l)}</span><span class="p">${f2(t.dd)}</span></div>`;
+  if(o.comp)foot+=`<div class="ln"><span class="n">${esc(o.comp)}</span></div>`;
+  (o.pays||[]).forEach(p=>foot+=`<div class="ln"><span class="n">${esc(p.label)}</span><span class="p">${f2(p.soles)}</span></div>`);
+  return `<div class="ticket ${cls}"><div class="tscroll">${items}${foot?`<div class="tfoot">${foot}</div>`:''}</div></div>`;
+}
+const arrowsHTML=cls=>`<div class="tarrows ${cls}">${[['uu','top'],['up','-1'],['up','-1'],['down','1'],['down','1'],['dd','bot']].map(([i,v])=>`<button data-a="tscroll:${v}" aria-label="Desplazar ticket">${IC[i]}</button>`).join('')}</div>`;
+const CARD=`<svg class="card-ic" viewBox="0 0 48 36" fill="none" stroke="#07a889" stroke-width="3.2"><rect x="3" y="3" width="42" height="30" rx="5"/><path d="M3 12h42"/></svg>`;
+const CHECK=`<svg viewBox="0 0 24 24" width="120" height="120" fill="none" stroke="#07a889" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`;
+
+function checkout(){
+  const o=S.order,t=totals(),pd=paid();
+  let h=`<div class="amtbox">${S.lastAmt!=null?f2(S.lastAmt):''}</div>`;
+  h+=nameBar(o)+ticketHTML(o,'tall')+arrowsHTML('tall');
+  h+=`<div class="tot tall"><div><span>Subtotal</span><span>${f2(t.sub)}</span></div><div><span>Dscto</span><span>${f2(t.ds)}</span></div>${pd?`<div><span>Pagos</span><span>${f2(pd)}</span></div>`:''}<div class="big"><span>${pd?'Por pagar :':'Total :'}</span><span>${f2(pd?remaining():t.tot)}</span></div></div>`;
+  h+=T(8,1000,204,72,'b','Volver al<br>pedido','ckback');
+  h+=T(220,1000,204,72,'r','Cancelar<br>pedido','openCancel');
+  h+=`<div class="hdr" style="top:110px">Comprobante</div>`;
+  COMPS.forEach((c,i)=>{const on=o.comp===c;h+=T(480+i*472,164,448,96,on?'s':'cmp',ck(on)+`<span>${c.replace(' con ',' con<br>')}</span>`,'comp:'+i)});
+  if(o.comp){
+    const m=S.ck.method;
+    if(S.ck.panel==='rewards'){
+      h+=`<div class="hdr" style="top:306px">Rewards</div>`;
+      h+=T(480,360,684,260,m==='sbr'?'b':'b','Pausa Recarga','toast:Pausa Recarga no forma parte de estos flujos',m==='sbr'?'style="left:480px;top:360px;width:684px;height:260px;opacity:.55"':'');
+      h+=T(1188,360,684,260,m==='sbr'?'s':'b',ck(m==='sbr')+'Starbucks Rewards','sbr');
+      h+=T(480,644,1392,120,'b','Otro método de pago','ckpanel:methods');
+    }else{
+      h+=`<div class="hdr" style="top:306px">Métodos de pago</div>`;
+      [['Soles','m:soles',480,360],['POS','m:pos',1188,360],['Dólares','m:usd',480,644],['Rewards','ckpanel:rewards',1188,644]].forEach(([l,a,x,y])=>{const on=m===a.split(':')[1];h+=T(x,y,684,260,on?'s':'b',ck(on)+l,a)});
+    }
+  }
+  ['Tipo de cambio','Documento manual','IGV Cortesía','Descuentos'].forEach((l,i)=>{h+=T(448+i*368,1000,360,72,'b',l,l==='Descuentos'?'openDisc':'toast:'+l+' no forma parte de estos flujos')});
+  return h;
+}
+function pad(keys,cls=''){return `<div class="mpad">${keys.map(k=>k==='Borrar'?`<button class="r" data-a="kdel">Borrar</button>`:k==='0w'?`<button class="wide" data-a="k:0">0</button>`:`<button data-a="k:${k}">${k}</button>`).join('')}</div>`}
+const fieldHTML=(v,ph)=>`<div class="field">${v?esc(v):`<span class="ph">${ph}</span>`}</div>`;
+const closeBtn=(lbl='Cerrar',a='close')=>`<button class="mb b" data-a="${a}">${IC.x}<span style="margin-left:10px">${lbl}</span></button>`;
+const okBtn=(lbl,on,a)=>`<button class="mb ${on?'g':'off'}" data-a="${on?a:'noop'}">${lbl}</button>`;
+function ckModal(m){
+  const due=`<p class="due">Por pagar: S/ ${f2(remaining())}</p>`;
+  if(m==='bills') return `<div class="modal" style="width:570px"><h3>Selecciona el billete</h3>${due}<div class="inrow">${fieldHTML(S.amt,'Toca un billete')}<button class="trash ${S.amt?'r':'off'}" data-a="${S.amt?'amtclear':'noop'}" aria-label="Eliminar monto">${IC.trash}</button></div><div class="bills">${[10,20,50,100,200].map(v=>`<button class="bill bill${v}" data-a="bill:${v}"><span>S/</span>${v}</button>`).join('')}<button class="bill other" data-a="otro">Otro monto</button></div><div class="row2">${closeBtn()}${okBtn('Finalizar',!!S.amt,'payCash')}</div></div>`;
+  if(m==='amount') return `<div class="modal" style="width:570px"><h3>Ingresa el monto</h3>${due}${fieldHTML(S.amt,'0.00')}${pad(['7','8','9','4','5','6','1','2','3','.','0','Borrar'])}<div class="row2">${closeBtn()}${okBtn('Finalizar',!!parseFloat(S.amt),'payCash')}</div></div>`;
+  if(m==='posinfo') return `<div class="modal" style="width:570px"><h3>Pago con POS</h3>${CARD}<p class="mtext">Realiza el cobro al cliente con el POS.<br><b>S/ ${f2(remaining())}</b></p><button class="mb g" data-a="posref">Continuar</button></div>`;
+  if(m==='posref') return `<div class="modal" style="width:570px"><h3>Ingresa el número de referencia del POS</h3><div class="inrow">${fieldHTML(S.ref,'N.° de referencia')}<button class="trash ${S.ref?'r':'off'}" data-a="${S.ref?'refclear':'noop'}" aria-label="Eliminar referencia">${IC.trash}</button></div>${pad(['7','8','9','4','5','6','1','2','3','0w'])}${okBtn('Finalizar',!!S.ref,'payPos')}</div>`;
+  if(m==='usd'){const tot=remaining();return `<div class="modal" style="width:570px"><h3>Pago en dólares</h3><div class="info"><div><span>Tipo de cambio</span><span>US$ 1 = S/ ${f2(FX)}</span></div><div><span>Cuenta en soles</span><span>S/ ${f2(tot)}</span></div><div><span>Cuenta en dólares</span><span>US$ ${f2(Math.ceil(tot/FX*100)/100)}</span></div></div>${fieldHTML(S.amt,'Monto recibido en US$')}${pad(['7','8','9','4','5','6','1','2','3','.','0','Borrar'])}<div class="row2">${closeBtn('Cancelar')}${okBtn('Pagar',!!parseFloat(S.amt),'payUsd')}</div></div>`}
+  if(m==='rwscan') return `<div class="modal" style="width:570px"><h3>Tarjeta de Starbucks Rewards</h3>${CARD}<p class="mtext">Escanea o desliza la tarjeta Rewards<br>por el lector para continuar.</p>${closeBtn()}<div class="demo">Demo: <button data-a="rwok">Simular lectura de tarjeta</button></div></div>`;
+  if(m==='disc') return `<div class="modal" style="width:570px"><h3>Aplicar descuento</h3><div class="dopts">${DISCS.map((d,i)=>`<button data-a="disc:${i}">${d[0]}</button>`).join('')}</div>${closeBtn()}</div>`;
+  if(m==='colab') return `<div class="modal" style="width:570px"><h3>Tarjeta de colaborador requerida</h3>${CARD}<p class="mtext">Desliza la tarjeta del colaborador<br>por el lector para continuar.</p>${closeBtn()}<div class="demo">Demo: <button data-a="colabok">Simular tarjeta de colaborador</button></div></div>`;
+  if(m==='discok') return `<div class="modal" style="width:570px"><h3>¡Dscto aplicado con éxito!</h3>${CHECK}${closeBtn()}</div>`;
+  if(m==='paidok') return `<div class="modal" style="width:570px"><h3>¡Pago realizado con éxito!</h3>${CHECK}${S.change>0?`<p class="chg">Vuelto: <b>S/ ${f2(S.change)}</b></p>`:''}<div class="row2"><button class="mb b" data-a="ckexit">Salir</button><button class="mb g" data-a="start:1">Tomar otro pedido</button></div></div>`;
+  return '';
+}
+function addPay(method,soles,label,shown){
+  const o=S.order;o.pays.push({m:method,soles:r2(soles),label});S.lastAmt=shown!=null?shown:soles;S.amt='';S.ref='';S._scrollEnd=true;
+  const tot=totals().tot,pd=paid();
+  if(pd>=tot-0.001){S.change=r2(pd-tot);S.modal='paidok';S.ck.method=null;render();return}
+  S.modal=null;S.ck.method=null;toast(`Pago parcial registrado · Por pagar S/ ${f2(remaining())}`);
+}
+function keyIn(field,k){
+  let v=S[field];
+  if(k==='.'){if(field==='ref'||v.includes('.'))return;v=(v||'0')+'.'}
+  else{if(/\.\d\d$/.test(v))return;if(v.replace('.','').length>=(field==='ref'?12:7))return;v=(v==='0'?'':v)+k}
+  S[field]=v;
+}
+
+function pos(){
+  const o=S.order,t=totals(),k=kindOf(S.cat);
+  let h='';
+  h+=T(0,24,216,72,'dine '+(o.dine==='tienda'?'tab-on':'tab'),ck(o.dine==='tienda')+'En tienda','dine:tienda');
+  h+=T(220,24,204,72,'dine '+(o.dine==='togo'?'tab-on':'tab'),ck(o.dine==='togo')+'To go','dine:togo');
+  h+=nameBar(o)+ticketHTML(o,'')+arrowsHTML('');
+  h+=`<div class="tot"><div><span>Subtotal</span><span>${f2(t.sub)}</span></div><div><span>Dscto</span><span>${f2(t.ds)}</span></div><div class="big"><span>Total :</span><span>${f2(t.tot)}</span></div></div>`;
+  h+=T(8,912,416,72,'g','Ir a pagar','pay');
+  h+=T(8,1000,88,72,S.modal==='menu'?'s':'b',IC.more,'menu','aria-label="Más opciones"');
+  h+=T(104,1000,88,72,'b',IC.copy,'dup','aria-label="Duplicar producto"');
+  h+=T(200,1000,88,72,'b',IC.trash,'openDel','aria-label="Borrar productos"');
+  h+=T(296,1000,128,72,'r','Cancelar<br>pedido','openCancel');
+  // columna pasos
+  const steps=STEPS[k];const ai=Math.max(0,steps.indexOf(S.step));
+  const start=steps.length>5?Math.min(Math.max(0,ai-3),steps.length-5):0;
+  const vis=steps.slice(start,start+5);
+  h+=`<div class="stepcol">`;
+  if(start>0)h+=`<button class="stepmore" style="top:54px" data-a="stepshift:-1" aria-label="Pestañas anteriores">${IC.up}</button>`;
+  h+=`<div class="steps">${vis.map(s=>`<button class="t stp ${S.step===s&&!S.perso?'on':''}" style="position:relative" data-a="step:${s}">${S.step===s&&!S.perso?ck(true).replace('chk','chk" style="width:16px;height:16px;margin-right:6px'):''}${s==='buscar'?IC.search.replace('class="ic"','width="18" height="18" style="margin-right:8px"'):''}${s==='escanear'?IC.scan.replace('class="ic"','width="18" height="18" style="margin-right:8px"'):''}${SL[s]}</button>`).join('')}</div>`;
+  if(start+5<steps.length)h+=`<button class="stepmore" style="top:618px" data-a="stepshift:1" aria-label="Más pestañas">${IC.down}</button>`;
+  h+=`<div class="perso">Personalizar<button class="toggle ${S.perso?'on':''}" data-a="perso" aria-pressed="${S.perso}" aria-label="Personalizar"><span class="x">${IC.x.replace('class="ic"','width="16" height="16"')}</span><span class="v">${IC.check.replace('class="ic"','width="18" height="18"')}</span></button></div>`;
+  h+=`<button class="t" style="left:16px;top:976px;width:184px;height:72px;background:var(--slate-dark)" data-a="next">Siguiente<br>producto</button>`;
+  h+=`</div>`;
+  // categorías
+  CATS.forEach((c,i)=>{h+=T(656+i*158,24,150,72,'cat '+(S.cat===c.id?'tab-on':'tab'),ck(S.cat===c.id)+`<span>${c.label}</span>`,'cat:'+c.id)});
+  h+=S.perso?persoView():stepView(k);
+  return h;
+}
+
+function grid(items,top){return `<div class="grid" style="top:${top}px">${items.join('')}</div>`}
+const gb=(cls,label,act)=>`<button class="t ${cls}" data-a="${act}">${label}</button>`;
+
+function stepView(k){
+  const it=cur();
+  const st=S.step;
+  if(st==='cross'){
+    return `<div class="question">¿Te gustaría aprovechar alguno de estos descuentos?</div>`+grid([gb('b','No','cross:no'),gb('b','Pan Queso<br>S/ 3.50','cross:Pan queso:3.5'),gb('b','Croissant<br>S/ 4.00','cross:Croissant:4')],224);
+  }
+  if(st==='tipo'){
+    let h='';
+    const subs=Object.keys(SUBS[S.cat]);
+    let top=120;
+    if(k==='drink'||k==='frapp'){
+      h+=grid(SIZES.map(([s])=>gb(S.size===s?'s':'b',ck(S.size===s)+s,'size:'+s)),120);top=232;
+    }
+    if(subs.length>1||k==='merch'||k==='food') {h+=grid(subs.map(s=>gb((S.sub===s?'s':(k==='merch'?'b':'sb')),ck(S.sub===s)+s,'sub:'+s)),top);}
+    const prods=SUBS[S.cat][S.sub]||[];
+    const paged=prods.length>16;const per=paged?14:16;
+    const pg=prods.slice(S.page*per,S.page*per+per);
+    const showPrice=k==='merch'||k==='simple';
+    const cells=pg.map(p=>{const on=it&&it.cat===S.cat&&it.name===p.n&&(k!=='merch');return gb(on?'s':'o',ck(on)+p.n+(showPrice?`<br>S/ ${f2(p.p)}`:''),'prod:'+encodeURIComponent(p.n))});
+    if(paged){while(cells.length<14)cells.push('<span></span>');cells.splice(11,0,gb('b',IC.up,'page:-1'));cells.push(gb('b',IC.down,'page:1'))}
+    h+=grid(cells,696);
+    return h;
+  }
+  if(st==='buscar') return buscar();
+  if(st==='escanear') return buscar();
+  if(!it) return `<div class="question" style="font-size:24px;color:#c9d0c9">Primero elige un producto en Tipo</div>`;
+  if(st==='adicionales'){
+    const qty=`<div class="qtyc"><div class="disp">${S.qty||''}</div>${['1','2','3','4','5','6','7','8','9','0'].map(n=>`<button class="${S.qty===n?'on':''}" data-a="qty:${n}">${n}</button>`).join('')}</div>`;
+    const cells=[`<button class="t ${it.extras.length===0&&it.noExtras?'s':'b'}" data-a="noext">${ck(it.extras.length===0&&it.noExtras)}No adicionales</button>`].concat(OPTS.adicionales.map(([l,p])=>{const e=it.extras.find(x=>x.l===l);return gb(e?'s':'b',ck(!!e)+`${l}<br>S/ ${f2(p)}`,'ext:'+l)}));
+    return qty+`<div class="grid" style="left:752px;top:120px;width:1152px;grid-template-columns:repeat(4,282px)">${cells.join('')}</div>`;
+  }
+  const key=st;
+  const opts=key==='envase'&&it.kind==='food'?OPTS.envaseFood:OPTS[key];
+  return grid(opts.map(([l,p])=>{const lbl=l.replace('<br>',' ').replace(' - 15% dscto.','');const on=it.mods[key]&&it.mods[key].k===lbl;return gb(on?'s':'b',ck(on)+`<span>${l}${p&&p!=='R'?`<br>S/ ${f2(p)}`:''}</span>`,`mod:${key}:${encodeURIComponent(lbl)}`)}),120);
+}
+
+function buscar(){
+  const q=S.sku;const res=q?SKU.filter(s=>s.sku.startsWith(q)):SKU;
+  const errState=S.skuErr;
+  let h=`<div class="list-h">Listado de Items</div><div class="skuin ${errState?'err':''}">${q||'<span style="color:#999;font-size:22px">Digita el código (SKU)</span>'}</div>`;
+  h+=T(1256,244,72,72,'b',IC.x,'skuclear','aria-label="Limpiar código"');
+  const lt=errState?350:334,lh=errState?400:400;
+  if(errState)h+=`<div class="skuerr">SKU incorrecto, verifica el código e inténtalo de nuevo.</div>`;
+  h+=`<div class="skulist" style="top:${lt}px;height:${lh}px">${res.length&&!errState?res.map(s=>`<div class="row ${S.skuSel===s.sku?'on':''}" data-a="skusel:${s.sku}"><span>${s.sku}</span><span>${esc(s.n)}</span></div>`).join(''):`<div class="empty"><b>No se encontraron items</b><span>No hay productos con el SKU “${esc(q)}”.</span></div>`}</div>`;
+  h+=`<button class="skuarr t up" style="top:${lt}px;height:${lh/2-4}px;position:absolute" data-a="skuscroll:-1" aria-label="Subir">${IC.up}</button><button class="skuarr t dn" style="top:${lt+lh/2+4}px;height:${lh/2-4}px;position:absolute" data-a="skuscroll:1" aria-label="Bajar">${IC.down}</button>`;
+  h+=`<div class="pad">${['7','8','9','4','5','6','1','2','3'].map(n=>`<button class="b" data-a="d:${n}">${n}</button>`).join('')}<button class="r" data-a="skudel">Borrar</button><button class="b" data-a="d:0">0</button><button class="g" data-a="skuok">OK</button></div>`;
+  return h;
+}
+
+function persoView(){
+  const it=cur();
+  const qty=`<div class="qtyc" style="left:656px;top:116px"><div class="disp">${S.qty||''}</div>${['1','2','3','4','5','6','7','8','9','0','1/2'].map(n=>`<button class="${S.qty===n?'on':''}" data-a="qty:${n}">${n}</button>`).join('')}</div>`;
+  const cats=Object.keys(PERSO);
+  let h=qty+`<div class="grid" style="left:744px;width:1160px;top:120px;grid-template-columns:repeat(3,1fr)">${cats.map(c=>gb(S.pCat===c?'s':'b',ck(S.pCat===c)+c,'pcat:'+c)).join('')}</div>`;
+  const subs=Object.keys(PERSO[S.pCat]);
+  h+=`<div class="grid" style="left:744px;width:1160px;top:232px;grid-template-columns:repeat(4,1fr)">${subs.map(s=>gb(S.pSub===s?'s':'b',ck(S.pSub===s)+s,'psub:'+s)).join('')}</div>`;
+  const opts=(PERSO[S.pCat][S.pSub]||[]);
+  h+=`<div class="grid" style="left:744px;width:1160px;top:696px;grid-template-columns:repeat(4,1fr)">${opts.map(o=>{const on=it&&it.perso.some(p=>p.l===o);return gb(on?'s':'o',ck(on)+o,'popt:'+encodeURIComponent(o))}).join('')}</div>`;
+  return h;
+}
+
+function modal(){
+  const m=S.modal;
+  const rwm=rwModal(m);if(rwm)return rwm;
+  if(m==='rewards') return `<div class="modal" style="width:570px"><h3 style="font-size:30px">¿Es cliente Rewards?</h3><button class="mb g" data-a="rw:1">Sí, cliente Rewards</button><button class="mb b" data-a="rw:0">No, por ahora</button></div>`;
+  if(m==='scan') return `<div class="modal" style="width:570px"><h3>Código del producto</h3>${QR}<p class="mtext">Escanea el código del producto<br>para continuar.</p><button class="mb b" data-a="close">${IC.x}<span style="margin-left:10px">Cerrar</span></button><div class="demo">Demo: <button data-a="scanok">Simular lectura del lector</button></div></div>`;
+  if(m==='del'){
+    const n=S.del.length;
+    return `<div class="modal" style="width:714px"><h3>Selecciona los productos a eliminar</h3><div class="dlist">${S.order.items.length?S.order.items.map(it=>`<div class="row ${S.del.includes(it.id)?'on':''}" data-a="dsel:${it.id}"><span class="q">1</span><span class="n">${esc(lines(it)[0].n)}</span><span>S/ ${f2(itemTotal(it))}</span></div>`).join(''):`<div class="empty"><b>El ticket está vacío</b><span>No hay productos para eliminar.</span></div>`}</div><div class="row2"><button class="mb b" data-a="close">${IC.x}<span style="margin-left:10px">Cerrar</span></button><button class="mb ${n?'r':'off red'}" data-a="${n?'doDel':'noop'}">${IC.trash}<span style="margin-left:10px">Borrar (${n})</span></button></div></div>`;
+  }
+  if(m==='reason') return `<div class="modal" style="width:714px"><button class="close" data-a="close" aria-label="Cerrar">${IC.x}</button><h3 style="text-align:left;margin-top:30px">Selecciona el motivo de cancelación</h3><div class="reasons"><div class="ls" id="rls">${REASONS.map((r,i)=>`<button class="rsn ${S.reason===i?'on':''}" data-a="reason:${i}"><span class="rd"></span>${r}</button>`).join('')}</div><div class="rbar"><button data-a="rscroll:-1" aria-label="Subir">${IC.up}</button><button data-a="rscroll:1" aria-label="Bajar">${IC.down}</button></div></div><div class="row2"><button class="mb b" data-a="close">${IC.x}<span style="margin-left:10px">Cerrar</span></button><button class="mb ${S.reason!=null?'g':'off'}" data-a="${S.reason!=null?'toAuth':'noop'}">Continuar</button></div></div>`;
+  if(m==='auth'){
+    const title=`<h3>Autorización gerencial para<br>cancelar pedido</h3>`;
+    if(S.auth==='huella') return `<div class="modal" style="width:570px">${title}<button class="fp" data-a="fp:ok" aria-label="Lector de huella">${FP(S.fpErr?'#c2203a':'#07a889',S.fpErr?'#c2203a':'#1b1b33')}</button><p class="mtext ${S.fpErr?'err':''}">${S.fpErr?'No pudimos reconocer tu huella.<br>Vuelve a intentarlo o ingresa tu clave.':'<b>Escanea tu huella para confirmar.</b><br>Si no puedes, usa tu clave.'}</p><button class="mb g" data-a="clave">Ingresar clave</button><button class="mb b" data-a="close">${IC.x}<span style="margin-left:10px">Cerrar</span></button><div class="demo">Demo del lector: <button data-a="fp:ok">Huella válida</button><button data-a="fp:bad">Huella no reconocida</button></div></div>`;
+    return `<div class="modal" style="width:570px">${title}<div class="pin ${S.pinErr?'err':''}">${'*'.repeat(S.pin.length)||'<span style="color:#aaa;font-size:20px;letter-spacing:0">Ingresa tu clave</span>'}</div><div class="pinerr">${S.pinErr?'Clave incorrecta, por favor vuelve a intentarlo.':''}</div><div class="mpad">${['7','8','9','4','5','6','1','2','3'].map(n=>`<button data-a="pin:${n}">${n}</button>`).join('')}<button class="r" data-a="pindel">Borrar</button><button data-a="pin:0">0</button><button class="g" data-a="pinok">OK</button></div><button class="mb b" data-a="close">${IC.x}<span style="margin-left:10px">Cerrar</span></button><div class="demo">Clave demo: ${PIN}</div></div>`;
+  }
+  if(m==='success') return `<div class="modal" style="width:570px"><h3>¡Pedido cancelado con éxito!</h3><svg viewBox="0 0 24 24" width="120" height="120" fill="none" stroke="#07a889" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg><button class="mb b" data-a="close">${IC.x}<span style="margin-left:10px">Cerrar</span></button></div>`;
+  const ckm=ckModal(m);if(ckm)return ckm;
+  if(m==='pay') return `<div class="modal" style="width:570px"><h3>Ir a pagar</h3><p class="mtext">Total del pedido: <b>S/ ${f2(totals().tot)}</b><br>El cobro no forma parte de estos flujos.</p><div class="row2"><button class="mb b" data-a="close">Seguir editando</button><button class="mb g" data-a="paid">Simular cobro</button></div></div>`;
+  return '';
+}
+
+/* ---------- acciones ---------- */
+let toastT;
+function toast(msg){S.toast=msg;render();clearTimeout(toastT);toastT=setTimeout(()=>{S.toast=null;render()},1900)}
+function setCat(id){S.cat=id;S.sub=firstSub(id);S.page=0;S.step='tipo';S.perso=false;S.sku='';S.skuErr=false;S.skuSel=null;S.cross=false;const c=cur();if(c&&!c.done&&c.cat!==id)finishCur(true)}
+function finishCur(silent){const c=cur();if(c)c.done=true;S.cur=null;S.sel=[];S.edit=false;S.step='tipo';S.cross=false;S.qty='';S.perso=false;if(!silent){S.sub=firstSub(S.cat);S.page=0}}
+function advance(){const c=cur();if(!c||c.done)return;const st=STEPS[c.kind];const i=st.indexOf(S.step);
+  if(i<st.length-1)S.step=st[i+1];
+  else if(c.kind==='food'){finishCur();toast('Producto listo')}
+}
+function addItem(it){S.order.items.push(it);S._scrollEnd=true}
+function newOrder(second){const chk=S.order.chk+1;S.order={items:[],name:'',dine:'tienda',chk,second,rewards:false,pays:[],disc:null,comp:null,cust:null};S.sel=[];S.ck={panel:'methods',method:null};S.lastAmt=null;S.amt='';S.ref='';S.usd='';S.cur=null;S.edit=false;setCat('drip');S.size='Alto'}
+
+function act(a){
+  const [cmd,...rest]=a.split(':');const arg=rest.join(':');
+  const it=cur();
+  switch(cmd){
+  case 'noop':return;
+  case 'toast':return toast(arg);
+  case 'go':
+    if(arg==='nombre'){S.kb=S.order.name;S.shift=!S.order.name;S.num=false}
+    S.screen=arg;break;
+  case 'start':newOrder(arg==='2');S.screen='pos';S.modal='rewards';break;
+  case 'rw':if(arg==='1'){S.modal='rwid';break}S.order.rewards=false;S.modal=null;break;
+  case 'rwread':S.modal='profile';break;
+  case 'profok':setCust();S.modal=null;S._scrollEnd=false;return toast('Cliente Rewards identificado');
+  case 'menu':S.modal=S.modal==='menu'?null:'menu';S.perso=false;break;
+  case 'rwmenu':{S.modal=null;const o=S.order;
+    if(!o.cust){S.modal='rwid';return toast('Identifica al cliente Rewards para continuar')}
+    const ids=selIds();if(!ids.length)return toast('Selecciona en el ticket el producto a canjear');
+    if(arg==='canje'){if(!rwGroups(ids).G.length)return toast('Los productos seleccionados no aplican para canje');S.modal='redeem';break}
+    if(ids.length>1)return toast('Selecciona un solo producto para aplicar un beneficio');
+    const t=o.items.find(i=>i.id===ids[0]);if(t.benef)return toast('Este producto ya tiene un beneficio aplicado');
+    if(!benefitsFor(t).length)return toast('Este producto no tiene beneficios disponibles');
+    S.bpick=0;S.modal='benef';break}
+  case 'bpick':S.bpick=Number(arg);break;
+  case 'doCanje':{const o=S.order;const {G}=rwGroups(selIds());const tot=G.reduce((a,g)=>a+g.stars,0);if(!G.length||tot>o.cust.stars)return;
+    G.forEach(g=>{const last=o.items.find(i=>i.id===g.ids[g.ids.length-1]);last.canje={stars:g.stars,disc:g.disc,copay:g.copay};g.ids.slice(0,-1).forEach(id=>{o.items.find(i=>i.id===id).canjeBy=last.id})});
+    o.cust.stars-=tot;S.sel=[];S.cur=null;S.edit=false;S.modal=null;return toast(`Canje aplicado · ${tot} estrellas`)}
+  case 'doBenef':{const o=S.order;const t=o.items.find(i=>i.id===selIds()[0]);const B=benefitsFor(t);const b=B[Math.min(S.bpick||0,B.length-1)];if(!b)return;
+    t.benef={k:b.k,label:b.label,disc:b.disc};S.sel=[];S.cur=null;S.edit=false;S.modal=null;return toast('Beneficio aplicado: '+b.label)}
+  case 'dine':{const was=S.order.dine;S.order.dine=arg;
+    if(arg==='togo'&&was!=='togo'){let n=0;S.order.items.forEach(x=>{if(x.kind==='merch'||x.kind==='simple')return;const m=x.mods.envase;if(!m||m.k!=='Descartable'){x.mods.envase={k:'Descartable',l:'Descartable',p:0};n++}});
+      if(n)return toast(n>1?`Envase cambiado a Descartable en ${n} productos`:'Envase cambiado a Descartable')}
+    break}
+  case 'cat':setCat(arg);break;
+  case 'size':S.size=arg;if(it&&isDrink(it))it.size=arg;break;
+  case 'sub':S.sub=arg;S.page=0;break;
+  case 'page':{const n=(SUBS[S.cat][S.sub]||[]).length,max=Math.ceil(n/14)-1;S.page=Math.min(max,Math.max(0,S.page+Number(arg)));break}
+  case 'prod':{
+    const name=decodeURIComponent(arg);const p=SUBS[S.cat][S.sub].find(x=>x.n===name);const k=kindOf(S.cat);
+    if(k==='merch'||k==='simple'){if(it&&!it.done)finishCur(true);const n=mkItem(S.cat,p.n,p.p,{done:true});addItem(n);S.cur=null;toast('Item agregado');return}
+    if(it&&!it.done&&it.cat===S.cat){it.name=p.n;it.base=p.p;if(isDrink(it))it.size=S.size}
+    else{if(it&&!it.done)finishCur(true);if(it&&it.done){S.cur=null;S.edit=false}S.sel=[];
+      const n=mkItem(S.cat,p.n,p.p,{size:S.size});addItem(n);S.cur=n.id}
+    if(!(it&&it.done&&S.edit))advance();
+    break}
+  case 'mod':{const [key,l]=arg.split(':');const lbl=decodeURIComponent(l);if(!it)return;
+    const src=key==='envase'&&it.kind==='food'?OPTS.envaseFood:OPTS[key];const o=src.find(x=>x[0].replace('<br>',' ').replace(' - 15% dscto.','')===lbl);
+    it.mods[key]={k:lbl,l:o[1]==='R'?'Reusable -15%':lbl,p:o[1]};
+    if(!it.done)advance();else toast('Producto actualizado');break}
+  case 'qty':S.qty=S.qty===arg?'':arg;break;
+  case 'noext':if(!it)return;it.extras=[];it.noExtras=true;if(!it.done&&isDrink(it)){S.step='cross';S.cross=true}break;
+  case 'ext':{if(!it)return;const o=OPTS.adicionales.find(x=>x[0]===arg);const q=Number(S.qty)||1;const e=it.extras.find(x=>x.l===arg);
+    if(e&&!S.qty)it.extras=it.extras.filter(x=>x!==e);else if(e)e.q=q;else it.extras.push({l:arg,p:o[1],q});it.noExtras=false;S.qty='';break}
+  case 'cross':if(arg!=='no'){const [n,p]=arg.split(':');finishCur();const f=mkItem('alimentos',n,Number(p),{done:true});addItem(f);return toast(n+' agregado al pedido')}finishCur();break;
+  case 'next':
+    if(it&&!it.done&&isDrink(it)&&!S.cross){S.step='cross';S.cross=true;S.perso=false;break}
+    finishCur();break;
+  case 'step':{
+    if(arg!=='tipo'&&arg!=='buscar'&&arg!=='escanear'&&!it)return toast('Primero elige un producto');
+    S.perso=false;S.step=arg;if(arg==='escanear'){S.modal='scan'}if(arg==='buscar'){S.skuErr=false}break}
+  case 'stepshift':{const st=STEPS[kindOf(S.cat)];const i=st.indexOf(S.step);const j=Math.min(st.length-1,Math.max(0,i+Number(arg)*1));if(st[j]!=='tipo'&&!it)return;S.step=st[j];break}
+  case 'sel':{const id=Number(arg);const t=S.order.items.find(x=>x.id===id);if(!t)return;
+    if(t.done&&!S.perso){S.sel=S.sel||[];S.sel=S.sel.includes(id)?S.sel.filter(x=>x!==id):S.sel.concat(id);
+      if(S.sel.length!==1){S.cur=null;S.edit=false;S.step='tipo';break}
+      const one=S.order.items.find(x=>x.id===S.sel[0]);if(it&&!it.done)finishCur(true);
+      S.cur=one.id;S.edit=true;S.cat=one.cat;S.sub=Object.keys(SUBS[one.cat]).find(s=>SUBS[one.cat][s].some(p=>p.n===one.name))||firstSub(one.cat);S.page=0;if(isDrink(one))S.size=one.size;S.step='tipo';break}
+    S.sel=[id];
+    if(it&&!it.done&&it.id!==id)finishCur(true);
+    S.cur=id;S.edit=t.done;S.cat=t.cat;S.sub=Object.keys(SUBS[t.cat]).find(s=>SUBS[t.cat][s].some(p=>p.n===t.name))||firstSub(t.cat);S.page=0;if(isDrink(t))S.size=t.size;if(!S.perso)S.step='tipo';break}
+  case 'perso':
+    if(!S.perso){if(!it){const last=S.order.items[S.order.items.length-1];if(!last)return toast('Agrega un producto para personalizarlo');S.cur=last.id;S.edit=last.done}S.perso=true;S.pCat='Bebidas';S.pSub='Aditivos';S.qty=''}
+    else S.perso=false;break;
+  case 'pcat':S.pCat=arg;S.pSub=Object.keys(PERSO[arg])[0];break;
+  case 'psub':S.pSub=arg;break;
+  case 'popt':{if(!it)return;const l=decodeURIComponent(arg);const e=it.perso.find(p=>p.l===l);if(e&&!S.qty)it.perso=it.perso.filter(p=>p!==e);else if(e)e.q=S.qty;else it.perso.push({l,q:S.qty});S.qty='';break}
+  case 'tscroll':{const ts=$st.querySelector('.tscroll');if(!ts)return;if(arg==='top')ts.scrollTop=0;else if(arg==='bot')ts.scrollTop=ts.scrollHeight;else ts.scrollBy({top:Number(arg)*150,behavior:'smooth'});return}
+  case 'dup':{const src=it||S.order.items[S.order.items.length-1];if(!src)return toast('No hay productos para duplicar');const c=JSON.parse(JSON.stringify(src));c.id=uid++;c.done=true;delete c.canje;delete c.canjeBy;delete c.benef;addItem(c);return toast('Producto duplicado')}
+  case 'openDel':S.del=[];S.modal='del';S.perso=false;break;
+  case 'dsel':{const id=Number(arg);S.del=S.del.includes(id)?S.del.filter(x=>x!==id):S.del.concat(id);break}
+  case 'doDel':{const n=S.del.length;S.order.items=S.order.items.filter(x=>!S.del.includes(x.id));S.sel=(S.sel||[]).filter(x=>!S.del.includes(x));if(S.del.includes(S.cur)){S.cur=null;S.edit=false;S.step='tipo'}S.modal=null;S.del=[];return toast(n>1?`${n} productos eliminados`:'Producto eliminado')}
+  case 'openCancel':S.reason=null;S.modal='reason';S.perso=false;break;
+  case 'reason':S.reason=Number(arg);break;
+  case 'rscroll':{const l=document.getElementById('rls');if(l)l.scrollBy({top:Number(arg)*200,behavior:'smooth'});return}
+  case 'toAuth':S.modal='auth';S.auth='huella';S.fpErr=false;S.pin='';S.pinErr=false;break;
+  case 'fp':if(arg==='ok')return cancelled();S.fpErr=true;break;
+  case 'clave':S.auth='clave';S.pin='';S.pinErr=false;break;
+  case 'pin':if(S.pinErr){S.pin='';S.pinErr=false}if(S.pin.length<8)S.pin+=arg;break;
+  case 'pindel':S.pin=S.pin.slice(0,-1);S.pinErr=false;break;
+  case 'pinok':if(S.pin===PIN)return cancelled();S.pinErr=true;break;
+  case 'close':{const was=S.modal;S.modal=null;if(['bills','amount','usd','rwscan'].includes(was)){S.ck.method=null;S.amt=''}if(was==='scan'&&S.step==='escanear')S.step='buscar';break}
+  case 'scanok':{const p=SKU[Math.floor(Math.random()*SKU.length)];addItem(mkItem('merch',p.n,p.p,{done:true}));S.modal=null;S.step='buscar';return toast('Item agregado: '+p.n)}
+  case 'd':S.skuErr=false;S.skuSel=null;if(S.sku.length<10)S.sku+=arg;break;
+  case 'skudel':S.sku=S.sku.slice(0,-1);S.skuErr=false;S.skuSel=null;break;
+  case 'skuclear':S.sku='';S.skuErr=false;S.skuSel=null;break;
+  case 'skusel':S.skuSel=arg;break;
+  case 'skuscroll':{const l=$st.querySelector('.skulist');if(l)l.scrollBy({top:Number(arg)*120,behavior:'smooth'});return}
+  case 'skuok':{const res=SKU.filter(s=>s.sku.startsWith(S.sku));
+    const pick=S.skuSel?SKU.find(s=>s.sku===S.skuSel):res.length===1?res[0]:SKU.find(s=>s.sku===S.sku);
+    if(!S.sku&&!S.skuSel)return toast('Digita un código o elige un item');
+    if(!res.length&&!pick){S.skuErr=true;break}
+    if(!pick)return toast('Elige un item de la lista');
+    addItem(mkItem('merch',pick.n,pick.p,{done:true}));S.sku='';S.skuSel=null;return toast('Item agregado: '+pick.n)}
+  case 'pay':if(!S.order.items.length)return toast('Agrega productos antes de ir a pagar');if(it&&!it.done)finishCur(true);S.perso=false;S.screen='checkout';S.ck={panel:'methods',method:null};break;
+  case 'ckback':S.screen='pos';break;
+  case 'comp':S.order.comp=COMPS[Number(arg)];break;
+  case 'ckpanel':S.ck.panel=arg;S.ck.method=null;break;
+  case 'm':S.ck.method=arg;S.amt='';S.ref='';
+    if(arg==='soles')S.modal='bills';else if(arg==='pos')S.modal='posinfo';else if(arg==='usd')S.modal='usd';break;
+  case 'bill':S.amt=f2((parseFloat(S.amt)||0)+Number(arg));break;
+  case 'amtclear':S.amt='';break;
+  case 'otro':S.amt='';S.modal='amount';break;
+  case 'k':keyIn(S.modal==='posref'?'ref':'amt',arg);break;
+  case 'kdel':S.amt=S.amt.slice(0,-1);break;
+  case 'payCash':{const v=parseFloat(S.amt);if(!v)return;return addPay('soles',v,'Efectivo')}
+  case 'posref':S.ref='';S.modal='posref';break;
+  case 'refclear':S.ref='';break;
+  case 'payPos':if(!S.ref)return;return addPay('pos',remaining(),'POS · Ref. '+S.ref);
+  case 'payUsd':{const u=parseFloat(S.amt);if(!u)return;return addPay('usd',r2(u*FX),`Dólares · US$ ${f2(u)}`,u)}
+  case 'sbr':S.ck.method='sbr';if(!S.order.rewards){S.modal='rwscan';break}return addPay('rewards',remaining(),'Starbucks Rewards');
+  case 'rwok':if(!S.order.cust)setCust();return addPay('rewards',remaining(),'Starbucks Rewards');
+  case 'openDisc':S.modal='disc';break;
+  case 'disc':{const d=DISCS[Number(arg)];if(d[2]){S.pendDisc=Number(arg);S.modal='colab';break}S.order.disc={l:d[0],pct:d[1]};S.modal='discok';break}
+  case 'colabok':{const d=DISCS[S.pendDisc];S.order.disc={l:d[0],pct:d[1]};S.modal='discok';break}
+  case 'ckexit':S.modal=null;S.screen='caja';newOrder(false);break;
+  case 'paid':S.modal=null;S.screen='caja';newOrder(false);return toast('Pedido cobrado');
+  case 'key':{let c=decodeURIComponent(arg);if(S.shift&&!S.num)c=c.toUpperCase();if(S.kb.length<30)S.kb+=c;if(S.shift&&c.trim())S.shift=false;break}
+  case 'kbdel':S.kb=S.kb.slice(0,-1);break;
+  case 'kbclear':S.kb='';S.shift=true;break;
+  case 'shift':S.shift=!S.shift;break;
+  case 'num':S.num=!S.num;break;
+  case 'kbok':S.order.name=S.kb.trim();S.screen='pos';break;
+  }
+  render();
+}
+function cancelled(){S.modal='success';S.screen='caja';S.order.items=[];S.order.name='';S.order.pays=[];S.order.disc=null;S.order.comp=null;S.lastAmt=null;S.order.cust=null;S.order.rewards=false;S.sel=[];S.cur=null;S.edit=false;S.perso=false;render()}
+
+$st.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b)return;act(b.dataset.a)});
+document.addEventListener('keydown',e=>{
+  if(S.screen==='nombre'){if(e.key==='Enter')act('kbok');else if(e.key==='Backspace')act('kbdel');else if(e.key.length===1){S.kb+=e.key;render()}return}
+  if(['amount','usd','posref'].includes(S.modal)){if(/^[\d.]$/.test(e.key))act('k:'+e.key);else if(e.key==='Backspace')act(S.modal==='posref'?'refclear':'kdel');return}
+  if(S.modal==='auth'&&S.auth==='clave'){if(/^\d$/.test(e.key))act('pin:'+e.key);else if(e.key==='Backspace')act('pindel');else if(e.key==='Enter')act('pinok');return}
+  if(S.screen==='pos'&&!S.modal&&S.step==='buscar'){if(/^\d$/.test(e.key))act('d:'+e.key);else if(e.key==='Backspace')act('skudel');else if(e.key==='Enter')act('skuok')}
+  if(e.key==='Escape'&&S.modal)act('close');
+});
+
+/* ---------- escenarios del Figma ---------- */
+function latte(done=true,extras=true){return mkItem('espresso','Alg Latte',14,{done,mods:{envase:{k:'Descartable',l:'Descartable',p:0},cafe:{k:'Espresso',l:'Expreso',p:0}},extras:extras?[{l:'Chispas choco',p:1,q:1},{l:'Shot de café',p:1,q:1}]:[]})}
+function croissant(){return mkItem('alimentos','Croissant jamón y queso',12.5,{done:true,mods:{temperatura:{k:'Caliente',l:'Caliente',p:0}}})}
+function base(){S=fresh();S.screen='pos';S.order.chk=1043}
+const D=(k,l)=>({k,l,p:0});
+function cafeDia(){return mkItem('drip','Café del día',8.5,{done:true,size:'Grande',mods:{envase:D('Descartable','Descartable'),cafe:D('Espresso','Expreso')}})}
+function frapp(n='Caramel Frappuccino',m={}){return mkItem('frappuccino',n,16,{done:true,mods:Object.assign({envase:D('Descartable','Descartable'),cafe:D('Espresso','Expreso')},m)})}
+function ciabatta(){return mkItem('alimentos','Chicken Ciabatta',15.5,{done:true,mods:{envase:D('Descartable','Descartable'),temperatura:D('Caliente','Caliente')}})}
+const mer=n=>mkItem('merch',n,n==='Tumbler Siren'?59:89,{done:true});
+function rw0(...items){base();setCust();items.forEach(addItem)}
+function ck0(comp){base();addItem(latte());S.screen='checkout';if(comp)S.order.comp=COMPS[0]}
+const FLOWS=[
+ ['Happy path',[
+  ['happy','Iniciar pedido','Desde el Módulo de caja: Iniciar pedido → Nuevo pedido → Rewards → Tipo, Envase, Leche, Café, Adicionales y Cross sale.',()=>{S=fresh()},'toca <b>Iniciar pedido</b> y arma un Alg Latte en Espresso.']]],
+ ['Alternative paths',[
+  ['alt','Alimento','Solo Tipo, Envase y Temperatura (caliente o sin calentar).',()=>{base();setCat('alimentos')},'elige un sándwich, luego Envase y Temperatura.'],
+  ['alt','Frappuccino','6 pasos de personalización; las pestañas se desplazan al llegar a Crema batida.',()=>{base();setCat('frappuccino')},'elige Mocha Frappuccino y avanza hasta Crema batida.'],
+  ['alt','Merch','Por subcategoría o buscando el item por su código con el teclado numérico.',()=>{base();setCat('merch')},'agrega un item de Destacados o entra a <b>Buscar</b> y digita 11123.'],
+  ['alt','Merch con scan','Escaneando el código con el lector, sin digitar el SKU.',()=>{base();setCat('merch')},'toca <b>Escanear</b> y simula la lectura.'],
+  ['alt','Segunda venta','Cuando el usuario quiere hacer una segunda venta.',()=>{S=fresh();S.screen='inicio'},'toca <b>2da venta</b>.'],
+  ['alt','Agregar nombre','Agregar el nombre del cliente a la cuenta o ticket.',()=>{base();addItem(latte())},'toca <b>[Nombre del cliente]</b> sobre el ticket.'],
+  ['alt','Personalizar pedido','Con el producto seleccionado, se activa Personalizar y se eligen aditivos, syrups u otras indicaciones.',()=>{base();const l=latte();addItem(l);S.cur=l.id;S.edit=true},'activa el interruptor <b>Personalizar</b> y elige Syrups.'],
+  ['alt','Edición de bebida','Editar una bebida que ya está en el ticket.',()=>{base();addItem(latte())},'toca el producto en el ticket, luego <b>Envase</b> → Loza.'],
+  ['alt','Borrar un producto','El ticket tiene una bebida y un alimento; se borra solo el alimento.',()=>{base();addItem(latte(true,false));addItem(croissant())},'toca el <b>tacho</b>, marca el croissant y borra.'],
+  ['alt','Borrar todos los productos','Se marcan los dos productos y se borran juntos.',()=>{base();addItem(latte(true,false));addItem(croissant())},'toca el <b>tacho</b> y marca ambos productos.'],
+  ['alt','Cancelar pedido con clave','Motivo de cancelación y autorización gerencial con clave.',()=>{base();addItem(latte())},'toca <b>Cancelar pedido</b>, elige motivo e ingresa la clave 1234.'],
+  ['alt','Cancelar pedido con huella','El gerente autoriza escaneando su huella.',()=>{base();addItem(latte())},'toca <b>Cancelar pedido</b> y simula una huella válida.']]],
+ ['Rewards',[
+  ['happy','Identificar al cliente','Nuevo pedido → ¿Es cliente Rewards? → escanear tarjeta → perfil del cliente → Confirmar.',()=>{S=fresh();S.screen='inicio'},'toca <b>Nuevo pedido</b> → Sí, cliente Rewards → simula la lectura → Confirmar.'],
+  ['happy','Canjear café del día · 50 ★','Producto seleccionado → Más opciones → Recompensas → Canjear.',()=>rw0(cafeDia()),'toca el café en el ticket, luego <b>···</b> → Recompensas → Canjear.'],
+  ['happy','Canjear Frappuccino · 100 ★','Canje de 100 estrellas por un Frappuccino del ticket.',()=>rw0(frapp()),'toca el Frappuccino en el ticket, luego <b>···</b> → Recompensas.'],
+  ['happy','Canjear bebida + alimento · 200 ★','Se seleccionan una bebida y un alimento y se canjean juntos.',()=>rw0(frapp(),ciabatta()),'toca los <b>dos productos</b> en el ticket, luego <b>···</b> → Recompensas.'],
+  ['happy','Canjear tumbler · 300 ★ + S/ 15','Canje de un tumbler de plástico con copago.',()=>rw0(mer('Tumbler Siren')),'toca el tumbler en el ticket, luego <b>···</b> → Recompensas.'],
+  ['happy','Canjear merch · 400 ★ + S/ 45','Canje de un tumbler de acero con copago.',()=>rw0(mer('Tumbler Metal')),'toca el tumbler en el ticket, luego <b>···</b> → Recompensas.'],
+  ['alt','Canjear varios productos','Se seleccionan varias recompensas a la vez desde un ticket con muchos productos.',()=>rw0(cafeDia(),frapp('Caramel Frappuccino',{crema:D('Con crema batida','Con crema batida')}),frapp('Mocha Frappuccino',{leche:D('Sin Lactosa','Sin Lactosa')}),ciabatta(),mer('Tumbler Siren'),mer('Tumbler Metal'),frapp('Java Chip Frappuccino')),'toca todos menos el último Frappuccino, luego <b>···</b> → Recompensas.'],
+  ['happy','Beneficio · Shot gratis','Shot de café gratis en cualquier bebida.',()=>{const a=latte(true,false);a.extras=[{l:'Shot de café',p:1,q:1}];rw0(a)},'toca la bebida, luego <b>···</b> → Beneficios → Shot de café gratis.'],
+  ['happy','Beneficio · Cumpleaños','Bebida gratis por cumpleaños, cualquier bebida y tamaño.',()=>rw0(frapp('Caramel Frappuccino',{leche:D('Entera','Entera'),crema:D('Con crema batida','Con crema batida')})),'toca la bebida, luego <b>···</b> → Beneficios.'],
+  ['happy','Beneficio · Café en grano','Bebida alta gratis si el cliente compró café en grano.',()=>rw0(latte(true,false)),'toca la bebida alta, luego <b>···</b> → Beneficios → Bebida alta por café en grano.'],
+  ['happy','Beneficio · Refill','Solo para café del día y té; el producto queda en 0.',()=>rw0(cafeDia()),'toca el café, luego <b>···</b> → Beneficios → Refill.']]],
+ ['Checkout',[
+  ['happy','Pago en soles · Otro monto','Comprobante → Soles → Otro monto con el teclado.',()=>{ck0()},'elige <b>Boleta simple</b>, luego <b>Soles</b> → Otro monto e ingresa 50.'],
+  ['happy','Pago con billetes','Cada toque en un billete suma su valor: dos toques en S/ 20 dan 40.00.',()=>{ck0()},'elige un comprobante, <b>Soles</b> y toca dos veces S/ 20.'],
+  ['happy','Pago con Rewards','Rewards → Starbucks Rewards. Si el cliente no está identificado se pide la tarjeta.',()=>{ck0()},'elige comprobante, <b>Rewards</b> → Starbucks Rewards.'],
+  ['happy','Pago con POS','Cobro en el POS → referencia → pago exitoso.',()=>{ck0()},'elige comprobante, <b>POS</b> → Continuar e ingresa la referencia.'],
+  ['happy','Pago en dólares','Diálogo con tipo de cambio; se ingresa el monto recibido y se paga.',()=>{ck0()},'elige comprobante, <b>Dólares</b> e ingresa 5.'],
+  ['alt','Borrar monto','Se borra el monto ingresado carácter por carácter con Borrar.',()=>{ck0(true);S.ck.method='soles';S.modal='amount';S.amt='50.00'},'toca <b>Borrar</b> hasta dejar el monto vacío.'],
+  ['alt','Eliminar monto con billetes','Se elimina todo el monto sumado con la papelera.',()=>{ck0(true);S.ck.method='soles';S.modal='bills';S.amt='40.00'},'toca la <b>papelera</b> junto al monto.'],
+  ['alt','Borrar referencia del POS','Se elimina la referencia ingresada con la papelera.',()=>{ck0(true);S.ck.method='pos';S.modal='posref';S.ref='1234'},'toca la <b>papelera</b> junto a la referencia.'],
+  ['alt','Descuento gerencial','Descuentos → Dscto. Gerencial 50 % pide la tarjeta del colaborador.',()=>{ck0(true)},'toca <b>Descuentos</b> → Dscto. Gerencial - 50%.']]],
+ ['Unhappy paths',[
+  ['unhappy','Error SKU','Se digita un SKU de merch que no existe.',()=>{base();setCat('merch');S.step='buscar'},'digita <b>99999</b> y toca OK.'],
+  ['unhappy','Error de clave','Clave incorrecta al cancelar la transacción.',()=>{base();addItem(latte())},'cancela el pedido e ingresa una clave distinta de 1234.'],
+  ['unhappy','Error de huella','El lector no reconoce la huella al cancelar.',()=>{base();addItem(latte())},'cancela el pedido y simula <b>Huella no reconocida</b>.']]],
+];
+const dr=document.getElementById('drawer');
+dr.innerHTML=FLOWS.map(([g,fs])=>`<h2>${g}</h2>`+fs.map((f,i)=>`<button class="flow ${f[0]}" data-flow="${g}|${i}"><strong>${f[1]}</strong><span>${f[2]}</span></button>`).join('')).join('');
+const bf=document.getElementById('btnFlows');
+function setDrawer(o){dr.classList.toggle('open',o);bf.classList.toggle('on',o);bf.setAttribute('aria-expanded',o)}
+bf.onclick=()=>setDrawer(!dr.classList.contains('open'));
+dr.addEventListener('click',e=>{const b=e.target.closest('[data-flow]');if(!b)return;const [g,i]=b.dataset.flow.split('|');const f=FLOWS.find(x=>x[0]===g)[1][i];f[3]();S.hint=`${f[1]} — ${f[4]}`;setDrawer(false);render()});
+document.getElementById('btnReset').onclick=()=>{S=fresh();render()};
+
+/* ---------- escala ---------- */
+const wrap=document.getElementById('wrap');
+function fit(){const w=wrap.clientWidth,h=wrap.clientHeight;const s=Math.min(w/1920,h/1080);$st.style.transform=`translate(${(w-1920*s)/2}px,${(h-1080*s)/2}px) scale(${s})`}
+addEventListener('resize',fit);new ResizeObserver(fit).observe(wrap);fit();
+setInterval(()=>{if(!S.modal&&S.screen!=='nombre'){const st=$st.querySelector('.status span:last-child');if(st)st.innerHTML=clock()}},20000);
+render();
+</script>
+</body>
+</html>
